@@ -3,20 +3,12 @@ import '../services/api_service.dart';
 import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/auth_widgets.dart';
+import '../utils/theme_provider.dart';
 import 'auth_page.dart';
 import 'registration_page.dart';
 import 'verification_page.dart';
 import 'home_page.dart';
 
-// =============================================================
-// LOGIN PAGE
-// Responsibilities:
-//   - Collect email and password from the user
-//   - Delegate API call to ApiService
-//   - Save session via SessionService on success
-//   - Route to VerificationPage on 403, or HomePage on success
-// OOP Principle: Inheritance (extends AuthPage), Single Responsibility
-// =============================================================
 class LoginPage extends AuthPage {
   const LoginPage({super.key});
 
@@ -56,25 +48,19 @@ class _LoginPageState extends AuthPageState<LoginPage> {
     setState(() => _isLoading = false);
 
     if (data['success'] == true) {
-      // Persist session so user stays logged in after closing app
       await _sessionService.save(
         userId:   data['user_id']  ?? '',
         username: data['username'] ?? '',
         email:    data['email']    ?? '',
       );
-
       if (!mounted) return;
-      Navigator.pushReplacement(
-        context,
-        MaterialPageRoute(
-          builder: (_) => HomePage(user: AuthUser.fromMap(data)),
-        ),
-      );
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (_) => HomePage(user: AuthUser.fromMap(data)),
+      ));
     } else if (data['statusCode'] == 403) {
       Navigator.push(context, MaterialPageRoute(
         builder: (_) => VerificationPage(
-          email: _emailCtrl.text.trim().toLowerCase(),
-        ),
+            email: _emailCtrl.text.trim().toLowerCase()),
       ));
     } else {
       setState(() => _errorMessage = data['message'] ?? 'Login failed');
@@ -98,7 +84,18 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const SizedBox(height: 48),
-                  AuthWidgets.buildBrand(),
+
+                  // Brand + theme toggle
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      AuthWidgets.buildBrand(isDark),
+                      AuthWidgets.buildThemeToggle(
+                        isDark:   isDark,
+                        onToggle: () => ThemeProvider().toggleTheme(),
+                      ),
+                    ],
+                  ),
                   const SizedBox(height: 52),
 
                   Container(
@@ -110,8 +107,7 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                       border: Border.all(
                           color: AppTheme.crimson.withOpacity(0.25)),
                     ),
-                    child: const Text(
-                      '🎟  TICKET HOLDER ACCESS',
+                    child: const Text('🎟  TICKET HOLDER ACCESS',
                       style: TextStyle(
                         color: AppTheme.crimson, fontSize: 11,
                         fontWeight: FontWeight.w700, letterSpacing: 2,
@@ -120,17 +116,14 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                   ),
                   const SizedBox(height: 20),
 
-                  const Text(
-                    'Welcome\nBack',
-                    style: TextStyle(
-                      color: AppTheme.textPrimary, fontSize: 44,
-                      fontWeight: FontWeight.w900,
-                      height: 1.1, letterSpacing: -1.5,
-                    ),
-                  ),
+                  Text('Welcome\nBack', style: TextStyle(
+                    color: AppTheme.textPrimary(isDark), fontSize: 44,
+                    fontWeight: FontWeight.w900,
+                    height: 1.1, letterSpacing: -1.5,
+                  )),
                   const SizedBox(height: 8),
-                  const Text('Sign in to manage your queue',
-                      style: AppTheme.mutedBodyStyle),
+                  Text('Sign in to manage your queue',
+                      style: AppTheme.mutedBodyStyle(isDark)),
                   const SizedBox(height: 40),
 
                   if (_errorMessage != null) ...[
@@ -138,31 +131,31 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                     const SizedBox(height: 20),
                   ],
 
-                  AuthWidgets.buildLabel('EMAIL ADDRESS'),
+                  AuthWidgets.buildLabel('EMAIL ADDRESS', isDark),
                   const SizedBox(height: 8),
                   AuthWidgets.buildTextField(
-                    controller:   _emailCtrl,
-                    hint:         'you@example.com',
-                    icon:         Icons.mail_outline_rounded,
+                    controller: _emailCtrl, isDark: isDark,
+                    hint: 'you@example.com',
+                    icon: Icons.mail_outline_rounded,
                     keyboardType: TextInputType.emailAddress,
-                    validator:    (v) => (v == null || !v.contains('@'))
+                    validator: (v) => (v == null || !v.contains('@'))
                         ? 'Enter a valid email address' : null,
                   ),
                   const SizedBox(height: 20),
 
-                  AuthWidgets.buildLabel('PASSWORD'),
+                  AuthWidgets.buildLabel('PASSWORD', isDark),
                   const SizedBox(height: 8),
                   AuthWidgets.buildTextField(
-                    controller: _passwordCtrl,
-                    hint:       'Your password',
-                    icon:       Icons.lock_outline_rounded,
-                    obscure:    _obscurePassword,
+                    controller: _passwordCtrl, isDark: isDark,
+                    hint: 'Your password',
+                    icon: Icons.lock_outline_rounded,
+                    obscure: _obscurePassword,
                     suffixIcon: IconButton(
                       icon: Icon(
                         _obscurePassword
                             ? Icons.visibility_off_outlined
                             : Icons.visibility_outlined,
-                        color: AppTheme.textMuted, size: 20,
+                        color: AppTheme.textMuted(isDark), size: 20,
                       ),
                       onPressed: () =>
                           setState(() => _obscurePassword = !_obscurePassword),
@@ -173,32 +166,29 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                   const SizedBox(height: 36),
 
                   AuthWidgets.buildPrimaryButton(
-                    label:     'SIGN IN',
-                    isLoading: _isLoading,
+                    label: 'SIGN IN', isLoading: _isLoading,
                     onPressed: _onLogin,
                   ),
                   const SizedBox(height: 28),
 
                   Row(children: [
-                    Expanded(child: Divider(color: AppTheme.border, thickness: 1)),
-                    const Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('or',
-                          style: TextStyle(
-                              color: AppTheme.textMuted, fontSize: 13)),
+                    Expanded(child: Divider(
+                        color: AppTheme.border(isDark), thickness: 1)),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text('or', style: TextStyle(
+                          color: AppTheme.textMuted(isDark), fontSize: 13)),
                     ),
-                    Expanded(child: Divider(color: AppTheme.border, thickness: 1)),
+                    Expanded(child: Divider(
+                        color: AppTheme.border(isDark), thickness: 1)),
                   ]),
                   const SizedBox(height: 28),
 
                   AuthWidgets.buildBottomLink(
-                    prefix:   "Don't have an account? ",
-                    linkText: 'Register',
-                    onTap: () => Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                          builder: (_) => const RegistrationPage()),
-                    ),
+                    prefix: "Don't have an account? ",
+                    linkText: 'Register', isDark: isDark,
+                    onTap: () => Navigator.push(context, MaterialPageRoute(
+                        builder: (_) => const RegistrationPage())),
                   ),
                   const SizedBox(height: 40),
                 ],
