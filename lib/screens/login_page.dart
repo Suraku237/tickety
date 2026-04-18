@@ -58,13 +58,18 @@ class _LoginPageState extends AuthPageState<LoginPage> {
         builder: (_) => HomePage(user: AuthUser.fromMap(data)),
       ));
     } else if (data['statusCode'] == 403) {
-      Navigator.push(context, MaterialPageRoute(
-        builder: (_) => VerificationPage(
+      final message = data['message'] ?? '';
+      if (message.contains('verify')) {
+        Navigator.push(context, MaterialPageRoute(
+          builder: (_) => VerificationPage(
             email: _emailCtrl.text.trim().toLowerCase()),
-      ));
-    } else {
-      setState(() => _errorMessage = data['message'] ?? 'Login failed');
-    }
+            ));
+        } else {
+            setState(() => _errorMessage = message);
+        }
+    }else{
+            setState(()=> _errorMessage = data['message'] ?? 'login failed');
+      }
   }
 
   @override

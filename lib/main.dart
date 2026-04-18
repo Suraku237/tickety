@@ -34,7 +34,7 @@ class QLineApp extends StatelessWidget {
       builder: (context, _) {
         final isDark = ThemeProvider().isDarkMode;
         return MaterialApp(
-          title:                      'QLINE',
+          title:                      'TICKETY',
           debugShowCheckedModeBanner: false,
           theme:      AppTheme.lightTheme(),
           darkTheme:  AppTheme.darkTheme(),
@@ -102,7 +102,7 @@ class _SplashRouterState extends State<SplashRouter> {
                   color: Colors.white, size: 30),
             ),
             const SizedBox(height: 16),
-            Text('QLINE', style: AppTheme.brandStyle(isDark)),
+            Text('TICKETY', style: AppTheme.brandStyle(isDark)),
           ],
         ),
       ),

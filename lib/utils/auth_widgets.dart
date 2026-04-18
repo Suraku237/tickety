@@ -25,7 +25,7 @@ class AuthWidgets {
               color: Colors.white, size: 22),
         ),
         const SizedBox(width: 12),
-        Text('QLINE', style: AppTheme.brandStyle(isDark)),
+        Text('TICKETY', style: AppTheme.brandStyle(isDark)),
       ],
     );
   }

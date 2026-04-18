@@ -156,7 +156,7 @@ class _HomePageState extends State<HomePage>
                                 color: Colors.white, size: 18),
                           ),
                           const SizedBox(width: 10),
-                          Text('QLINE', style: TextStyle(
+                          Text('TICKETY', style: TextStyle(
                             color: AppTheme.textPrimary(isDark),
                             fontSize: 20, fontWeight: FontWeight.w800,
                             letterSpacing: 4,
@@ -290,7 +290,7 @@ class _HomePageState extends State<HomePage>
 
                     Center(child: Padding(
                       padding: const EdgeInsets.only(bottom: 24),
-                      child: Text('QLINE v1.0.0 — Smart Queue Management',
+                      child: Text('TICKETY v1.0.0 — Smart Queue Management',
                         style: TextStyle(
                           color: AppTheme.textMuted(isDark).withOpacity(0.4),
                           fontSize: 11, letterSpacing: 0.5,
