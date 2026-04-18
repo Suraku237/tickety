@@ -296,10 +296,6 @@ class FeatureGrid extends StatelessWidget {
       childAspectRatio: 1.1,
       physics: const NeverScrollableScrollPhysics(),
       children: const [
-        FeatureTile(icon: Icons.queue_rounded, label: 'My Queue'),
-        FeatureTile(icon: Icons.confirmation_num_outlined, label: 'My Tickets'),
-        FeatureTile(icon: Icons.store_rounded, label: 'Services'),
-        FeatureTile(icon: Icons.bar_chart_rounded, label: 'Activity'),
       ],
     );
   }
