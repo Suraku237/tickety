@@ -40,7 +40,7 @@ jobs:
           # Path to the generated APK
           source: "build/app/outputs/flutter-apk/app-release.apk"
           # Where to put it on your website so it's downloadable
-          target: "/var/www/tickety_website/dist/downloads/"
+          target: "/var/www/tickety_website/downloads/"
           strip_components: 4
 
       # 4. Optional: Run a script to rename the file or fix permissions
@@ -53,10 +53,10 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             # Ensure the directory exists
-            mkdir -p /var/www/tickety_website/dist/downloads
+            mkdir -p /var/www/tickety_website/downloads
             
             # Set permissions so users can download it
-            chown -R www-data:www-data /var/www/tickety_website/dist/downloads
-            chmod 644 /var/www/tickety_website/dist/downloads/app-release.apk
+            chown -R www-data:www-data /var/www/tickety_website/downloads
+            chmod 644 /var/www/tickety_website/downloads/app-release.apk
             
             echo "✅ APK is now available at yoursites-ip:5500/downloads/app-release.apk"
