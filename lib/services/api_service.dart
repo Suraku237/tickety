@@ -21,7 +21,7 @@ class ApiService {
   // Replace 192.168.x.x with your PC's local IP address
   // Run `ipconfig` (Windows) or `hostname -I` (Linux/Mac) to find it
   // Your phone and PC must be on the same WiFi network
-  static const String _baseUrl = 'http://192.168.x.x:5000/api';
+  static const String _baseUrl = 'http://109.199.120.38:5000/api';
 
   // X-App-Source header tells the backend this request comes from
   // the mobile app → role will be automatically set to 'client'

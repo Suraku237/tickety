@@ -104,7 +104,7 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
 
     if (data['success'] == true) {
       setState(() => _successMessage = 'Email verified! Redirecting...');
-      final resolvedUsername = widget.username ?? widget.email.split('@')[0];
+      final resolvedUsername =data['username'] ?? widget.username ?? widget.email.split('@')[0];
       await _sessionService.save(
           userId: '', username: resolvedUsername, email: widget.email);
       await Future.delayed(const Duration(seconds: 1));
