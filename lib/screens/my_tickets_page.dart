@@ -35,7 +35,7 @@ class _MyTicketsPageState extends State<MyTicketsPage>
     _tabCtrl = TabController(length: _tabs.length, vsync: this);
     _tabCtrl.addListener(() => setState(() {}));
     ThemeProvider().addListener(_rebuild);
-    _load(); 
+    _load();
   }
 
   void _rebuild() { if (mounted) setState(() {}); }
@@ -49,7 +49,8 @@ class _MyTicketsPageState extends State<MyTicketsPage>
 
   Future<void> _load() async {
     setState(() => _loading = true);
-    try {   final data = await _api.getTickets( userId: widget.user.userId);
+    try {
+      final data = await _api.getTickets(userId: widget.user.userId);
       if (!mounted) return;
       setState(() {
         _all     = (data['tickets'] as List? ?? []).cast<Map<String, dynamic>>();
