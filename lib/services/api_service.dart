@@ -14,7 +14,7 @@ class ApiService {
   static const String _baseUrl = 'http://109.199.120.38:5000/api';
 
   // =============================================================
-  // 🔐 TOKEN MANAGEMENT (ADDED)
+  // 🔐 TOKEN MANAGEMENT
   // =============================================================
   String? _token;
 
@@ -22,12 +22,15 @@ class ApiService {
     _token = token;
   }
 
-  void clear() {
+  // ✅ FIX: renamed to match HomePage usage
+  void clearToken() {
     _token = null;
   }
 
+  bool get isLoggedIn => _token != null;
+
   // =============================================================
-  // 🧾 HEADERS (UPDATED → dynamic for auth)
+  // 🧾 HEADERS (dynamic)
   // =============================================================
   Map<String, String> get _headers {
     return {
@@ -53,7 +56,7 @@ class ApiService {
   }
 
   // ----------------------------------------------------------
-  // LOGIN (UPDATED → saves token)
+  // LOGIN (auto-save token)
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> login({
     required String email,
@@ -69,7 +72,7 @@ class ApiService {
     );
 
     // ✅ Save token automatically
-    if (res['token'] != null) {
+    if (res['token'] != null && res['token'].toString().isNotEmpty) {
       setToken(res['token']);
     }
 
@@ -95,11 +98,13 @@ class ApiService {
   Future<Map<String, dynamic>> resendOtp({
     required String email,
   }) async {
-    return _post('/resend-otp', {'email': email});
+    return _post('/resend-otp', {
+      'email': email,
+    });
   }
 
   // ----------------------------------------------------------
-  // CREATE TICKET (YOUR FEATURE)
+  // CREATE TICKET
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> createTicket({
     required String userId,
@@ -121,20 +126,30 @@ class ApiService {
     });
   }
 
-  // =============================================================
-  // OPTIONAL (if you use later — safe to keep)
-  // =============================================================
-
-  // Get all tickets for a user
-  Future<Map<String, dynamic>> getTickets(String userId) async {
+  // ----------------------------------------------------------
+  // GET ALL TICKETS
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> getTickets({
+    required String userId,
+  }) async {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/tickets/$userId'),
         headers: _headers,
       );
 
-      return jsonDecode(response.body);
-    } catch (_) {
+      final data = jsonDecode(response.body);
+
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+
+      // fallback if backend returns array directly
+      return {
+        'success': true,
+        'tickets': data,
+      };
+    } catch (e) {
       return {
         'success': false,
         'message': 'Failed to fetch tickets',
@@ -142,15 +157,28 @@ class ApiService {
     }
   }
 
-  // Get single ticket
-  Future<Map<String, dynamic>> getTicket(String ticketId) async {
+  // ----------------------------------------------------------
+  // GET SINGLE TICKET
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> getTicket({
+    required String ticketId,
+  }) async {
     try {
       final response = await http.get(
         Uri.parse('$_baseUrl/ticket/$ticketId'),
         headers: _headers,
       );
 
-      return jsonDecode(response.body);
+      final data = jsonDecode(response.body);
+
+      if (data is Map<String, dynamic>) {
+        return data;
+      }
+
+      return {
+        'success': true,
+        'ticket': data,
+      };
     } catch (_) {
       return {
         'success': false,
@@ -160,7 +188,7 @@ class ApiService {
   }
 
   // ----------------------------------------------------------
-  // PRIVATE: Generic POST handler
+  // PRIVATE: POST
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> _post(
     String endpoint,
@@ -174,10 +202,17 @@ class ApiService {
         body: jsonEncode(body),
       );
 
-      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final decoded = jsonDecode(response.body);
+
+      final data = decoded is Map<String, dynamic>
+          ? decoded
+          : {'data': decoded};
 
       if (includeStatusCode) {
-        return {...data, 'statusCode': response.statusCode};
+        return {
+          ...data,
+          'statusCode': response.statusCode,
+        };
       }
 
       return data;

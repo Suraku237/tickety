@@ -242,8 +242,8 @@ class _DashboardPageState extends State<DashboardPage> {
   Future<void> _loadStats() async {
     setState(() => _loading = true);
     try {
-      final data = await _api.getTickets(userId: widget.user.userId);
-      if (!mounted) return;
+      final data = await _api.getTickets( userId:widget.user.userId);
+      if (!mounted) return; 
 
       final tickets = (data['tickets'] as List? ?? [])
           .cast<Map<String, dynamic>>();

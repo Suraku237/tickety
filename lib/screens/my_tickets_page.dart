@@ -50,7 +50,7 @@ class _MyTicketsPageState extends State<MyTicketsPage>
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final data = await _api.getTickets( widget.user.userId);
+      final data = await _api.getTickets( userId: widget.user.userId);
       if (!mounted) return;
       setState(() {
         _all     = (data['tickets'] as List? ?? []).cast<Map<String, dynamic>>();
