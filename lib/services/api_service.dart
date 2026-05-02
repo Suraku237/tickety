@@ -79,7 +79,28 @@ class ApiService {
   }) async {
     return _post('/resend-otp', {'email': email});
   }
-
+// ----------------------------------------------------------
+// CREATE TICKET
+// ----------------------------------------------------------
+Future<Map<String, dynamic>> createTicket({
+  required String userId,
+  required String title,
+  required String description,
+  required String notes,
+  required String priority,
+  required String service,
+  required String serviceCode,
+}) async {
+  return _post('/tickets/create', {
+    'userId': userId,
+    'title': title,
+    'description': description,
+    'notes': notes,
+    'priority': priority,
+    'service': service,
+    'serviceCode': serviceCode,
+  });
+}
   // ----------------------------------------------------------
   // PRIVATE: Generic POST handler
   // ----------------------------------------------------------
