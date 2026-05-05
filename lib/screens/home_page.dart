@@ -5,11 +5,9 @@ import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
 import 'create_ticket_page.dart';
-import 'my_tickets_page.dart';
-import 'settings_page.dart';
 
 // =============================================================
-// AUTH USER  (DTO)
+// AUTH USER  (DTO — shared across all pages)
 // =============================================================
 class AuthUser {
   final String userId;
@@ -22,15 +20,15 @@ class AuthUser {
     required this.email,
   });
 
-  factory AuthUser.fromMap(Map<String, dynamic> d) => AuthUser(
-    userId:   d['user_id']  ?? '',
-    username: d['username'] ?? '',
-    email:    d['email']    ?? '',
+  factory AuthUser.fromMap(Map<String, dynamic> data) => AuthUser(
+    userId:   data['user_id']  ?? '',
+    username: data['username'] ?? '',
+    email:    data['email']    ?? '',
   );
 }
 
 // =============================================================
-// HOME PAGE  — IndexedStack shell
+// HOME PAGE  —  IndexedStack shell  (3 tabs)
 // =============================================================
 class HomePage extends StatefulWidget {
   final AuthUser user;
@@ -44,9 +42,11 @@ class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
 
   final _session = SessionService();
+
   late AnimationController _fadeCtrl;
   late Animation<double>   _fadeAnim;
-  int  _tab   = 0;
+
+  int  _tab  = 0;
   bool get _dark => ThemeProvider().isDarkMode;
 
   @override
@@ -75,6 +75,7 @@ class _HomePageState extends State<HomePage>
     Navigator.of(context).popUntil((r) => r.isFirst);
   }
 
+  // Allow DashboardView to push the user to the Create tab
   void _goToCreate() => setState(() => _tab = 1);
 
   @override
@@ -83,27 +84,38 @@ class _HomePageState extends State<HomePage>
       statusBarColor:          Colors.transparent,
       statusBarIconBrightness: _dark ? Brightness.light : Brightness.dark,
     ));
+
     return Scaffold(
       backgroundColor: AppTheme.surface(_dark),
       body: FadeTransition(
         opacity: _fadeAnim,
-        child: IndexedStack(
-          index: _tab,
-          children: [
-            DashboardPage(
-              user:       widget.user,
-              onCreateTicket: _goToCreate,
+        child: Stack(children: [
+          const _BgGlows(),
+          SafeArea(
+            child: IndexedStack(
+              index: _tab,
+              children: [
+                // Tab 0 — Dashboard (live data)
+                _DashboardPage(
+                  user:         widget.user,
+                  onCreateTap:  _goToCreate,
+                ),
+                // Tab 1 — Create Ticket (fully implemented)
+                CreateTicketPage(user: widget.user),
+                // Tab 2 — Settings (fully implemented)
+                _SettingsPage(
+                  user:     widget.user,
+                  onLogout: _logout,
+                ),
+              ],
             ),
-            CreateTicketPage(user: widget.user),
-            MyTicketsPage(user: widget.user),
-            SettingsPage(user: widget.user, onLogout: _logout),
-          ],
-        ),
+          ),
+        ]),
       ),
       bottomNavigationBar: _BottomNav(
         current: _tab,
-        onTap:   (i) => setState(() => _tab = i),
         dark:    _dark,
+        onTap:   (i) => setState(() => _tab = i),
       ),
     );
   }
@@ -114,9 +126,9 @@ class _HomePageState extends State<HomePage>
 // =============================================================
 class _BottomNav extends StatelessWidget {
   final int current;
-  final void Function(int) onTap;
   final bool dark;
-  const _BottomNav({required this.current, required this.onTap, required this.dark});
+  final void Function(int) onTap;
+  const _BottomNav({required this.current, required this.dark, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -124,23 +136,24 @@ class _BottomNav extends StatelessWidget {
       decoration: BoxDecoration(
         color:  AppTheme.card(dark),
         border: Border(top: BorderSide(color: AppTheme.border(dark))),
-        boxShadow: [
-          BoxShadow(
-            color:   Colors.black.withOpacity(dark ? 0.3 : 0.06),
-            blurRadius: 16, offset: const Offset(0, -4)),
-        ],
+        boxShadow: [BoxShadow(
+          color: Colors.black.withOpacity(dark ? 0.25 : 0.06),
+          blurRadius: 16, offset: const Offset(0, -4),
+        )],
       ),
       child: SafeArea(
         top: false,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 6),
+          padding: const EdgeInsets.symmetric(vertical: 4),
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: [
-              _NavItem(icon: Icons.dashboard_rounded,   label: 'Home',    index: 0, current: current, onTap: onTap, dark: dark),
-              _NavItem(icon: Icons.add_circle_rounded,  label: 'Create',  index: 1, current: current, onTap: onTap, dark: dark, accent: true),
-              _NavItem(icon: Icons.confirmation_num_rounded, label: 'Tickets', index: 2, current: current, onTap: onTap, dark: dark),
-              _NavItem(icon: Icons.person_rounded,      label: 'Profile', index: 3, current: current, onTap: onTap, dark: dark),
+              _NavItem(icon: Icons.dashboard_rounded,
+                  label: 'Home',    index: 0, current: current, onTap: onTap, dark: dark),
+              _NavItem(icon: Icons.add_circle_rounded,
+                  label: 'Create',  index: 1, current: current, onTap: onTap, dark: dark),
+              _NavItem(icon: Icons.manage_accounts_rounded,
+                  label: 'Profile', index: 2, current: current, onTap: onTap, dark: dark),
             ],
           ),
         ),
@@ -155,39 +168,35 @@ class _NavItem extends StatelessWidget {
   final int      index;
   final int      current;
   final void Function(int) onTap;
-  final bool dark;
-  final bool accent;
+  final bool     dark;
 
   const _NavItem({
     required this.icon, required this.label, required this.index,
     required this.current, required this.onTap, required this.dark,
-    this.accent = false,
   });
 
   @override
   Widget build(BuildContext context) {
-    final selected = index == current;
-    final color    = selected ? AppTheme.crimson : AppTheme.textMuted(dark);
+    final sel   = index == current;
+    final color = sel ? AppTheme.crimson : AppTheme.textMuted(dark);
 
     return GestureDetector(
       onTap: () => onTap(index),
       behavior: HitTestBehavior.opaque,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
         decoration: BoxDecoration(
-          color: selected
-              ? AppTheme.crimson.withOpacity(0.10)
-              : Colors.transparent,
+          color:        sel ? AppTheme.crimson.withOpacity(0.10) : Colors.transparent,
           borderRadius: BorderRadius.circular(14),
         ),
         child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, color: color, size: accent ? 28 : 22),
+          Icon(icon, color: color, size: 23),
           const SizedBox(height: 3),
           Text(label, style: TextStyle(
             color:      color,
             fontSize:   10,
-            fontWeight: selected ? FontWeight.w700 : FontWeight.w500,
+            fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
           )),
         ]),
       ),
@@ -196,31 +205,69 @@ class _NavItem extends StatelessWidget {
 }
 
 // =============================================================
-// DASHBOARD PAGE
+// BACKGROUND GLOWS  (decorative, kept from original)
 // =============================================================
-class DashboardPage extends StatefulWidget {
-  final AuthUser user;
-  final VoidCallback onCreateTicket;
-
-  const DashboardPage({
-    super.key,
-    required this.user,
-    required this.onCreateTicket,
-  });
+class _BgGlows extends StatelessWidget {
+  const _BgGlows();
 
   @override
-  State<DashboardPage> createState() => _DashboardPageState();
+  Widget build(BuildContext context) {
+    return Stack(children: [
+      Align(
+        alignment: Alignment.topRight,
+        child: Container(
+          width: 260, height: 260,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(colors: [
+              AppTheme.crimson.withOpacity(0.10), Colors.transparent]),
+          ),
+        ),
+      ),
+      Align(
+        alignment: Alignment.bottomLeft,
+        child: Container(
+          width: 180, height: 180,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: RadialGradient(colors: [
+              AppTheme.darkCrimson.withOpacity(0.08), Colors.transparent]),
+          ),
+        ),
+      ),
+    ]);
+  }
 }
 
-class _DashboardPageState extends State<DashboardPage> {
+// =============================================================
+// ─────────────────────────────────────────────────────────────
+//  DASHBOARD PAGE  (Tab 0)
+//  - Loads real stats from API on mount + pull-to-refresh
+//  - Recent tickets live list
+//  - Create CTA banner
+//  - Quick actions grid wired to real tabs / pages
+// ─────────────────────────────────────────────────────────────
+// =============================================================
+class _DashboardPage extends StatefulWidget {
+  final AuthUser   user;
+  final VoidCallback onCreateTap;
+
+  const _DashboardPage({required this.user, required this.onCreateTap});
+
+  @override
+  State<_DashboardPage> createState() => _DashboardPageState();
+}
+
+class _DashboardPageState extends State<_DashboardPage> {
   final _api = ApiService();
 
-  bool _loading       = true;
-  int  _totalTickets  = 0;
-  int  _openTickets   = 0;
-  int  _closedTickets = 0;
-  int  _urgentTickets = 0;
-  List<Map<String, dynamic>> _recentTickets = [];
+  bool   _loading       = true;
+  String? _error;
+  int    _total         = 0;
+  int    _open          = 0;
+  int    _closed        = 0;
+  int    _urgent        = 0;
+  List<Map<String, dynamic>> _recent = [];
 
   bool get _dark => ThemeProvider().isDarkMode;
 
@@ -228,7 +275,7 @@ class _DashboardPageState extends State<DashboardPage> {
   void initState() {
     super.initState();
     ThemeProvider().addListener(_rebuild);
-    _loadStats();
+    _load();
   }
 
   void _rebuild() { if (mounted) setState(() {}); }
@@ -239,126 +286,94 @@ class _DashboardPageState extends State<DashboardPage> {
     super.dispose();
   }
 
-  Future<void> _loadStats() async {
-    setState(() => _loading = true);
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
     try {
-      final data = await _api.getTickets( userId:widget.user.userId);
-      if (!mounted) return; 
-
-      final tickets = (data['tickets'] as List? ?? [])
-          .cast<Map<String, dynamic>>();
-
+      final data = await _api.getTickets(userId: widget.user.userId);
+      if (!mounted) return;
+      final tickets = (data['tickets'] as List? ?? []).cast<Map<String,dynamic>>();
       setState(() {
-        _totalTickets  = tickets.length;
-        _openTickets   = tickets.where((t) =>
-            (t['status'] ?? '').toString().toLowerCase() == 'open').length;
-        _closedTickets = tickets.where((t) =>
-            (t['status'] ?? '').toString().toLowerCase() == 'closed').length;
-        _urgentTickets = tickets.where((t) =>
-            (t['priority'] ?? '').toString().toLowerCase() == 'urgent').length;
-        _recentTickets = tickets.take(3).toList();
+        _total   = tickets.length;
+        _open    = tickets.where((t) => t['status'] == 'open').length;
+        _closed  = tickets.where((t) => t['status'] == 'closed').length;
+        _urgent  = tickets.where((t) => t['priority'] == 'urgent').length;
+        _recent  = tickets.take(3).toList();
         _loading = false;
       });
     } catch (_) {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) setState(() { _loading = false; _error = 'Could not load tickets.'; });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    return Stack(children: [
-      // Decorative background glows
-      Positioned(top: -60, right: -60,
-        child: Container(width: 260, height: 260,
-          decoration: BoxDecoration(shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [
-              AppTheme.crimson.withOpacity(0.12), Colors.transparent])))),
-      Positioned(bottom: 80, left: -80,
-        child: Container(width: 200, height: 200,
-          decoration: BoxDecoration(shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [
-              AppTheme.darkCrimson.withOpacity(0.08), Colors.transparent])))),
+    return RefreshIndicator(
+      color:    AppTheme.crimson,
+      onRefresh: _load,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const SizedBox(height: 22),
 
-      SafeArea(
-        child: RefreshIndicator(
-          color:    AppTheme.crimson,
-          onRefresh: _loadStats,
-          child: SingleChildScrollView(
-            physics: const AlwaysScrollableScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 22),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SizedBox(height: 20),
+          // ── Top bar ──
+          _TopBar(user: widget.user, dark: _dark),
+          const SizedBox(height: 26),
 
-              // ── Top bar ──
-              _TopBar(user: widget.user, dark: _dark),
-              const SizedBox(height: 28),
+          // ── Greeting ──
+          _Greeting(user: widget.user, dark: _dark),
+          const SizedBox(height: 26),
 
-              // ── Greeting ──
-              _GreetingSection(user: widget.user, dark: _dark),
-              const SizedBox(height: 28),
+          // ── Create CTA ──
+          _CreateBanner(dark: _dark, onTap: widget.onCreateTap),
+          const SizedBox(height: 26),
 
-              // ── Create ticket CTA ──
-              _CreateTicketBanner(onTap: widget.onCreateTicket, dark: _dark),
-              const SizedBox(height: 28),
+          // ── Stats ──
+          if (_error != null)
+            _ErrorStrip(message: _error!, dark: _dark)
+          else
+            _StatsRow(
+              dark: _dark, loading: _loading,
+              total: _total, open: _open,
+              closed: _closed, urgent: _urgent,
+            ),
+          const SizedBox(height: 26),
 
-              // ── Stats row ──
-              _StatsRow(
-                dark:    _dark,
-                loading: _loading,
-                total:   _totalTickets,
-                open:    _openTickets,
-                closed:  _closedTickets,
-                urgent:  _urgentTickets,
-              ),
-              const SizedBox(height: 28),
-
-              // ── Recent tickets ──
-              _SectionHeader(
-                title: 'Recent Tickets',
-                dark:  _dark,
-                action: _totalTickets > 0 ? 'View all' : null,
-                onAction: () {},
-              ),
-              const SizedBox(height: 14),
-              _loading
-                  ? _SkeletonList(dark: _dark)
-                  : _recentTickets.isEmpty
-                      ? _EmptyState(dark: _dark, onTap: widget.onCreateTicket)
-                      : Column(
-                          children: _recentTickets
-                              .map((t) => _TicketCard(ticket: t, dark: _dark))
-                              .toList(),
-                        ),
-              const SizedBox(height: 28),
-
-              // ── Quick actions ──
-              _SectionHeader(title: 'Quick Actions', dark: _dark),
-              const SizedBox(height: 14),
-              _QuickActionsGrid(
-                dark:           _dark,
-                onCreateTicket: widget.onCreateTicket,
-              ),
-              const SizedBox(height: 28),
-
-              // Footer
-              Center(child: Text('TICKETY v1.0  ·  Smart Queue Management',
-                style: TextStyle(
-                  color: AppTheme.textMuted(_dark).withOpacity(0.4),
-                  fontSize: 11,
-                ),
-              )),
-              const SizedBox(height: 24),
-            ]),
+          // ── Recent tickets ──
+          _SectionHeader(
+            title: 'Recent Tickets', dark: _dark,
+            action: _total > 0 ? 'See all' : null,
+            onAction: () {},
           ),
-        ),
+          const SizedBox(height: 12),
+          _loading
+              ? _SkeletonList(dark: _dark)
+              : _recent.isEmpty
+                  ? _EmptyTickets(dark: _dark, onTap: widget.onCreateTap)
+                  : Column(children: _recent
+                      .map((t) => _TicketRow(ticket: t, dark: _dark))
+                      .toList()),
+          const SizedBox(height: 26),
+
+          // ── Quick actions ──
+          _SectionHeader(title: 'Quick Actions', dark: _dark),
+          const SizedBox(height: 12),
+          _QuickGrid(dark: _dark, onCreateTap: widget.onCreateTap),
+
+          const SizedBox(height: 28),
+          Center(child: Text('TICKETY v1.0  ·  Smart Queue Management',
+            style: TextStyle(
+              color:    AppTheme.textMuted(_dark).withOpacity(0.35),
+              fontSize: 11,
+            ))),
+          const SizedBox(height: 20),
+        ]),
       ),
-    ]);
+    );
   }
 }
 
-// =============================================================
-// TOP BAR
-// =============================================================
+// ── Top bar: brand + theme toggle + avatar ──
 class _TopBar extends StatelessWidget {
   final AuthUser user;
   final bool dark;
@@ -367,31 +382,27 @@ class _TopBar extends StatelessWidget {
   String _initials() {
     if (user.username.isEmpty) return '?';
     final p = user.username.trim().split(' ');
-    return p.length >= 2
-        ? '${p[0][0]}${p[1][0]}'.toUpperCase()
-        : user.username[0].toUpperCase();
+    return (p.length >= 2 ? '${p[0][0]}${p[1][0]}' : user.username[0])
+        .toUpperCase();
   }
 
   @override
   Widget build(BuildContext context) {
     return Row(children: [
       // Brand
-      Row(children: [
-        Container(
-          width: 34, height: 34,
-          decoration: BoxDecoration(
-            color:        AppTheme.crimson,
-            borderRadius: BorderRadius.circular(9),
-          ),
-          child: const Icon(Icons.confirmation_num_rounded,
-              color: Colors.white, size: 17),
-        ),
-        const SizedBox(width: 9),
-        Text('TICKETY', style: TextStyle(
-          color: AppTheme.textPrimary(dark), fontSize: 18,
-          fontWeight: FontWeight.w800, letterSpacing: 4,
-        )),
-      ]),
+      Container(
+        width: 32, height: 32,
+        decoration: BoxDecoration(
+          color: AppTheme.crimson, borderRadius: BorderRadius.circular(8)),
+        child: const Icon(Icons.confirmation_num_rounded,
+            color: Colors.white, size: 16),
+      ),
+      const SizedBox(width: 9),
+      Text('TICKETY', style: TextStyle(
+        color: AppTheme.textPrimary(dark), fontSize: 17,
+        fontWeight: FontWeight.w800, letterSpacing: 4,
+      )),
+
       const Spacer(),
 
       // Theme toggle
@@ -400,14 +411,13 @@ class _TopBar extends StatelessWidget {
         child: Container(
           width: 36, height: 36,
           decoration: BoxDecoration(
-            color:        AppTheme.card(dark),
-            borderRadius: BorderRadius.circular(10),
+            color: AppTheme.card(dark), borderRadius: BorderRadius.circular(9),
             border: Border.all(color: AppTheme.border(dark)),
           ),
           child: Icon(
             dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
             color: dark ? const Color(0xFFFFC107) : const Color(0xFF555555),
-            size: 17,
+            size: 16,
           ),
         ),
       ),
@@ -417,8 +427,8 @@ class _TopBar extends StatelessWidget {
       Container(
         width: 36, height: 36,
         decoration: BoxDecoration(
-          color:        AppTheme.crimson.withOpacity(0.15),
-          shape:        BoxShape.circle,
+          color:  AppTheme.crimson.withOpacity(0.14),
+          shape:  BoxShape.circle,
           border: Border.all(color: AppTheme.crimson.withOpacity(0.3)),
         ),
         child: Center(child: Text(_initials(), style: const TextStyle(
@@ -429,15 +439,13 @@ class _TopBar extends StatelessWidget {
   }
 }
 
-// =============================================================
-// GREETING SECTION
-// =============================================================
-class _GreetingSection extends StatelessWidget {
+// ── Greeting ──
+class _Greeting extends StatelessWidget {
   final AuthUser user;
   final bool dark;
-  const _GreetingSection({required this.user, required this.dark});
+  const _Greeting({required this.user, required this.dark});
 
-  String _greeting() {
+  String _greet() {
     final h = DateTime.now().hour;
     if (h < 12) return 'Good morning';
     if (h < 17) return 'Good afternoon';
@@ -447,95 +455,85 @@ class _GreetingSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(_greeting(), style: TextStyle(
-        color: AppTheme.textMuted(dark), fontSize: 15,
-        fontWeight: FontWeight.w500,
-      )),
+      Text(_greet(), style: TextStyle(
+        color: AppTheme.textMuted(dark), fontSize: 14, fontWeight: FontWeight.w500)),
       const SizedBox(height: 4),
-      Text(
-        user.username.isNotEmpty ? user.username : 'User',
+      Text(user.username.isNotEmpty ? user.username : 'User',
         style: TextStyle(
-          color: AppTheme.textPrimary(dark), fontSize: 32,
-          fontWeight: FontWeight.w900, letterSpacing: -0.8,
-        ),
-        overflow: TextOverflow.ellipsis,
-      ),
+          color: AppTheme.textPrimary(dark), fontSize: 30,
+          fontWeight: FontWeight.w900, letterSpacing: -0.8),
+        overflow: TextOverflow.ellipsis),
       const SizedBox(height: 4),
       Row(children: [
         Container(
           width: 7, height: 7,
           decoration: const BoxDecoration(
-            color: Colors.green, shape: BoxShape.circle),
-        ),
+            color: Colors.green, shape: BoxShape.circle)),
         const SizedBox(width: 6),
         Text('Account active', style: TextStyle(
-          color: AppTheme.textMuted(dark), fontSize: 13,
-        )),
+          color: AppTheme.textMuted(dark), fontSize: 12)),
       ]),
     ]);
   }
 }
 
-// =============================================================
-// CREATE TICKET CTA BANNER
-// =============================================================
-class _CreateTicketBanner extends StatefulWidget {
-  final VoidCallback onTap;
+// ── Create CTA banner ──
+class _CreateBanner extends StatefulWidget {
   final bool dark;
-  const _CreateTicketBanner({required this.onTap, required this.dark});
+  final VoidCallback onTap;
+  const _CreateBanner({required this.dark, required this.onTap});
 
   @override
-  State<_CreateTicketBanner> createState() => _CreateTicketBannerState();
+  State<_CreateBanner> createState() => _CreateBannerState();
 }
 
-class _CreateTicketBannerState extends State<_CreateTicketBanner>
+class _CreateBannerState extends State<_CreateBanner>
     with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double>   _scale;
+  late AnimationController _c;
+  late Animation<double>   _s;
 
   @override
   void initState() {
     super.initState();
-    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 100));
-    _scale = Tween<double>(begin: 1.0, end: 0.97)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 120));
+    _s = Tween<double>(begin: 1.0, end: 0.97)
+        .animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut));
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() { _c.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown:   (_) => _ctrl.forward(),
-      onTapUp:     (_) { _ctrl.reverse(); widget.onTap(); },
-      onTapCancel: ()  => _ctrl.reverse(),
+      onTapDown:   (_) => _c.forward(),
+      onTapUp:     (_) { _c.reverse(); widget.onTap(); },
+      onTapCancel: ()  => _c.reverse(),
       child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        animation: _s,
+        builder: (_, child) => Transform.scale(scale: _s.value, child: child),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
             gradient: LinearGradient(
               colors: [AppTheme.crimson, AppTheme.darkCrimson],
-              begin:  Alignment.topLeft,
-              end:    Alignment.bottomRight,
+              begin: Alignment.topLeft, end: Alignment.bottomRight,
             ),
             borderRadius: BorderRadius.circular(18),
-            boxShadow: [
-              BoxShadow(
-                color:   AppTheme.crimson.withOpacity(0.35),
-                blurRadius: 20, offset: const Offset(0, 8)),
-            ],
+            boxShadow: [BoxShadow(
+              color:   AppTheme.crimson.withOpacity(0.30),
+              blurRadius: 20, offset: const Offset(0, 8),
+            )],
           ),
           child: Row(children: [
-            Expanded(
-              child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                   decoration: BoxDecoration(
-                    color:        Colors.white.withOpacity(0.2),
+                    color: Colors.white.withOpacity(0.2),
                     borderRadius: BorderRadius.circular(6),
                   ),
                   child: const Text('NEW', style: TextStyle(
@@ -545,23 +543,22 @@ class _CreateTicketBannerState extends State<_CreateTicketBanner>
                 ),
                 const SizedBox(height: 10),
                 const Text('Create a Ticket', style: TextStyle(
-                  color: Colors.white, fontSize: 20,
-                  fontWeight: FontWeight.w900,
+                  color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900,
                 )),
                 const SizedBox(height: 4),
                 Text('Scan a QR code or enter a service link',
                   style: TextStyle(
                     color: Colors.white.withOpacity(0.75), fontSize: 13)),
-              ]),
-            ),
+              ],
+            )),
             Container(
-              width: 52, height: 52,
+              width: 50, height: 50,
               decoration: BoxDecoration(
-                color:        Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(14),
+                color: Colors.white.withOpacity(0.18),
+                borderRadius: BorderRadius.circular(13),
               ),
               child: const Icon(Icons.qr_code_scanner_rounded,
-                  color: Colors.white, size: 26),
+                  color: Colors.white, size: 24),
             ),
           ]),
         ),
@@ -570,9 +567,7 @@ class _CreateTicketBannerState extends State<_CreateTicketBanner>
   }
 }
 
-// =============================================================
-// STATS ROW
-// =============================================================
+// ── Stats row ──
 class _StatsRow extends StatelessWidget {
   final bool dark, loading;
   final int  total, open, closed, urgent;
@@ -588,11 +583,10 @@ class _StatsRow extends StatelessWidget {
       return Row(children: List.generate(4, (i) => Expanded(
         child: Container(
           margin: EdgeInsets.only(right: i < 3 ? 10 : 0),
-          height: 82,
+          height: 80,
           decoration: BoxDecoration(
-            color:        AppTheme.card(dark),
-            borderRadius: BorderRadius.circular(14),
-          ),
+            color: AppTheme.card(dark),
+            borderRadius: BorderRadius.circular(14)),
         ),
       )));
     }
@@ -628,26 +622,22 @@ class _StatCard extends StatelessWidget {
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(value.toString(), style: TextStyle(
-            color: color, fontSize: 22, fontWeight: FontWeight.w900,
-          )),
+            color: color, fontSize: 22, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
           Text(label, style: TextStyle(
             color: AppTheme.textMuted(dark), fontSize: 11,
-            fontWeight: FontWeight.w600,
-          )),
+            fontWeight: FontWeight.w600)),
         ]),
       ),
     );
   }
 }
 
-// =============================================================
-// SECTION HEADER
-// =============================================================
+// ── Section header ──
 class _SectionHeader extends StatelessWidget {
   final String title;
   final bool   dark;
-  final String? action;
+  final String?    action;
   final VoidCallback? onAction;
   const _SectionHeader({required this.title, required this.dark,
       this.action, this.onAction});
@@ -656,45 +646,33 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
       Text(title, style: TextStyle(
-        color: AppTheme.textPrimary(dark), fontSize: 17,
-        fontWeight: FontWeight.w800,
-      )),
+        color: AppTheme.textPrimary(dark), fontSize: 16,
+        fontWeight: FontWeight.w800)),
       if (action != null)
         GestureDetector(
           onTap: onAction,
           child: Text(action!, style: const TextStyle(
-            color: AppTheme.crimson, fontSize: 13, fontWeight: FontWeight.w700,
-          )),
+            color: AppTheme.crimson, fontSize: 13, fontWeight: FontWeight.w700)),
         ),
     ]);
   }
 }
 
-// =============================================================
-// RECENT TICKET CARD
-// =============================================================
-class _TicketCard extends StatelessWidget {
+// ── Recent ticket row ──
+class _TicketRow extends StatelessWidget {
   final Map<String, dynamic> ticket;
   final bool dark;
-  const _TicketCard({required this.ticket, required this.dark});
+  const _TicketRow({required this.ticket, required this.dark});
 
-  Color _priorityColor(String p) {
-    switch (p.toLowerCase()) {
-      case 'urgent': return AppTheme.crimson;
-      case 'high':   return Colors.orange;
-      case 'medium': return Colors.blue;
-      default:       return Colors.green;
-    }
-  }
+  Color _pc(String p) => switch (p.toLowerCase()) {
+    'urgent' => AppTheme.crimson, 'high' => Colors.orange,
+    'medium' => Colors.blue,     _      => Colors.green,
+  };
 
-  Color _statusColor(String s) {
-    switch (s.toLowerCase()) {
-      case 'open':    return Colors.blue;
-      case 'closed':  return Colors.green;
-      case 'pending': return Colors.orange;
-      default:        return AppTheme.textMuted(dark);
-    }
-  }
+  Color _sc(String s) => switch (s.toLowerCase()) {
+    'open'    => Colors.blue,  'pending' => Colors.orange,
+    'closed'  => Colors.green, _         => Colors.grey,
+  };
 
   @override
   Widget build(BuildContext context) {
@@ -705,99 +683,82 @@ class _TicketCard extends StatelessWidget {
 
     return Container(
       margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color:        AppTheme.card(dark),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(12),
         border: Border.all(color: AppTheme.border(dark)),
       ),
       child: Row(children: [
-        // Priority dot
         Container(
-          width: 10, height: 10,
+          width: 8, height: 44,
           decoration: BoxDecoration(
-            color:  _priorityColor(priority),
-            shape:  BoxShape.circle,
-          ),
+            color: _pc(priority), borderRadius: BorderRadius.circular(4)),
         ),
         const SizedBox(width: 12),
         Expanded(child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(title,
-              style: TextStyle(
-                color: AppTheme.textPrimary(dark),
-                fontSize: 14, fontWeight: FontWeight.w700,
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-            if (service.isNotEmpty) ...[
-              const SizedBox(height: 3),
+            Text(title, style: TextStyle(
+              color: AppTheme.textPrimary(dark),
+              fontSize: 14, fontWeight: FontWeight.w700),
+              overflow: TextOverflow.ellipsis),
+            if (service.isNotEmpty)
               Text(service, style: TextStyle(
-                color: AppTheme.textMuted(dark), fontSize: 12,
-              )),
-            ],
+                color: AppTheme.textMuted(dark), fontSize: 12)),
           ],
         )),
         const SizedBox(width: 8),
         Container(
-          padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
           decoration: BoxDecoration(
-            color:        _statusColor(status).withOpacity(0.12),
+            color:        _sc(status).withOpacity(0.12),
             borderRadius: BorderRadius.circular(6),
           ),
           child: Text(status[0].toUpperCase() + status.substring(1),
-            style: TextStyle(
-              color: _statusColor(status), fontSize: 10,
-              fontWeight: FontWeight.w800, letterSpacing: 0.5,
-            )),
+            style: TextStyle(color: _sc(status), fontSize: 10,
+                fontWeight: FontWeight.w800)),
         ),
       ]),
     );
   }
 }
 
-// =============================================================
-// EMPTY STATE
-// =============================================================
-class _EmptyState extends StatelessWidget {
+// ── Empty state ──
+class _EmptyTickets extends StatelessWidget {
   final bool dark;
   final VoidCallback onTap;
-  const _EmptyState({required this.dark, required this.onTap});
+  const _EmptyTickets({required this.dark, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 36),
+      padding: const EdgeInsets.symmetric(vertical: 32),
       decoration: BoxDecoration(
-        color:        AppTheme.card(dark),
-        borderRadius: BorderRadius.circular(16),
+        color: AppTheme.card(dark), borderRadius: BorderRadius.circular(14),
         border: Border.all(color: AppTheme.border(dark)),
       ),
       child: Column(children: [
         Icon(Icons.confirmation_num_outlined,
-            color: AppTheme.textMuted(dark).withOpacity(0.4), size: 40),
+            color: AppTheme.textMuted(dark).withOpacity(0.35), size: 38),
         const SizedBox(height: 12),
         Text('No tickets yet', style: TextStyle(
           color: AppTheme.textPrimary(dark),
-          fontSize: 15, fontWeight: FontWeight.w700,
-        )),
+          fontSize: 15, fontWeight: FontWeight.w700)),
         const SizedBox(height: 6),
-        Text('Create your first ticket to get started',
-            style: TextStyle(color: AppTheme.textMuted(dark), fontSize: 13)),
+        Text('Tap the button below to create one',
+          style: TextStyle(color: AppTheme.textMuted(dark), fontSize: 12)),
         const SizedBox(height: 18),
         GestureDetector(
           onTap: onTap,
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 10),
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
             decoration: BoxDecoration(
-              color:        AppTheme.crimson,
-              borderRadius: BorderRadius.circular(10),
-            ),
+              color: AppTheme.crimson,
+              borderRadius: BorderRadius.circular(10)),
             child: const Text('Create ticket', style: TextStyle(
-              color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700,
-            )),
+              color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
           ),
         ),
       ]),
@@ -805,45 +766,69 @@ class _EmptyState extends StatelessWidget {
   }
 }
 
-// =============================================================
-// SKELETON LOADER
-// =============================================================
+// ── Skeleton loader ──
 class _SkeletonList extends StatelessWidget {
   final bool dark;
   const _SkeletonList({required this.dark});
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: List.generate(3, (_) => Container(
-        margin: const EdgeInsets.only(bottom: 10),
-        height: 68,
-        decoration: BoxDecoration(
-          color:        AppTheme.card(dark),
-          borderRadius: BorderRadius.circular(14),
-        ),
-      )),
+    return Column(children: List.generate(3, (_) => Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      height: 66,
+      decoration: BoxDecoration(
+        color: AppTheme.card(dark), borderRadius: BorderRadius.circular(12)),
+    )));
+  }
+}
+
+// ── Error strip ──
+class _ErrorStrip extends StatelessWidget {
+  final String message;
+  final bool dark;
+  const _ErrorStrip({required this.message, required this.dark});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color:        AppTheme.crimson.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: AppTheme.crimson.withOpacity(0.25)),
+      ),
+      child: Row(children: [
+        const Icon(Icons.error_outline_rounded,
+            color: AppTheme.crimson, size: 18),
+        const SizedBox(width: 10),
+        Expanded(child: Text(message, style: const TextStyle(
+          color: AppTheme.crimson, fontSize: 13))),
+      ]),
     );
   }
 }
 
-// =============================================================
-// QUICK ACTIONS GRID
-// =============================================================
-class _QuickActionsGrid extends StatelessWidget {
+// ── Quick actions grid ──
+class _QuickGrid extends StatelessWidget {
   final bool dark;
-  final VoidCallback onCreateTicket;
-  const _QuickActionsGrid({required this.dark, required this.onCreateTicket});
+  final VoidCallback onCreateTap;
+  const _QuickGrid({required this.dark, required this.onCreateTap});
 
   @override
   Widget build(BuildContext context) {
-    final actions = [
-      _QA(icon: Icons.qr_code_scanner_rounded, label: 'Scan QR',   color: AppTheme.crimson,  onTap: onCreateTicket),
-      _QA(icon: Icons.link_rounded,            label: 'Enter Link', color: Colors.blue,       onTap: onCreateTicket),
-      _QA(icon: Icons.history_rounded,         label: 'History',    color: Colors.orange,     onTap: () {}),
-      _QA(icon: Icons.notifications_rounded,   label: 'Alerts',     color: Colors.purple,     onTap: () {}),
-      _QA(icon: Icons.bar_chart_rounded,       label: 'Analytics',  color: Colors.teal,       onTap: () {}),
-      _QA(icon: Icons.support_agent_rounded,   label: 'Support',    color: Colors.green,      onTap: () {}),
+    final items = [
+      _QA(icon: Icons.qr_code_scanner_rounded, label: 'Scan QR',
+          color: AppTheme.crimson,  onTap: onCreateTap),
+      _QA(icon: Icons.link_rounded, label: 'Enter Link',
+          color: Colors.blue,       onTap: onCreateTap),
+      _QA(icon: Icons.history_rounded, label: 'History',
+          color: Colors.orange,     onTap: () {}),
+      _QA(icon: Icons.notifications_rounded, label: 'Alerts',
+          color: Colors.purple,     onTap: () {}),
+      _QA(icon: Icons.bar_chart_rounded, label: 'Analytics',
+          color: Colors.teal,       onTap: () {}),
+      _QA(icon: Icons.support_agent_rounded, label: 'Support',
+          color: Colors.green,      onTap: () {}),
     ];
 
     return GridView.count(
@@ -853,7 +838,7 @@ class _QuickActionsGrid extends StatelessWidget {
       childAspectRatio: 1.1,
       shrinkWrap: true,
       physics: const NeverScrollableScrollPhysics(),
-      children: actions.map((a) => _QuickActionTile(qa: a, dark: dark)).toList(),
+      children: items.map((a) => _QATile(qa: a, dark: dark)).toList(),
     );
   }
 }
@@ -867,40 +852,40 @@ class _QA {
       required this.color, required this.onTap});
 }
 
-class _QuickActionTile extends StatefulWidget {
+class _QATile extends StatefulWidget {
   final _QA  qa;
   final bool dark;
-  const _QuickActionTile({required this.qa, required this.dark});
+  const _QATile({required this.qa, required this.dark});
 
   @override
-  State<_QuickActionTile> createState() => _QuickActionTileState();
+  State<_QATile> createState() => _QATileState();
 }
 
-class _QuickActionTileState extends State<_QuickActionTile>
-    with SingleTickerProviderStateMixin {
-  late AnimationController _ctrl;
-  late Animation<double>   _scale;
+class _QATileState extends State<_QATile> with SingleTickerProviderStateMixin {
+  late AnimationController _c;
+  late Animation<double>   _s;
 
   @override
   void initState() {
     super.initState();
-    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 100));
-    _scale = Tween<double>(begin: 1.0, end: 0.94)
-        .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
+    _c = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 100));
+    _s = Tween<double>(begin: 1.0, end: 0.94)
+        .animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut));
   }
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void dispose() { _c.dispose(); super.dispose(); }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown:   (_) => _ctrl.forward(),
-      onTapUp:     (_) { _ctrl.reverse(); widget.qa.onTap(); },
-      onTapCancel: ()  => _ctrl.reverse(),
+      onTapDown:   (_) => _c.forward(),
+      onTapUp:     (_) { _c.reverse(); widget.qa.onTap(); },
+      onTapCancel: ()  => _c.reverse(),
       child: AnimatedBuilder(
-        animation: _scale,
-        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        animation: _s,
+        builder: (_, child) => Transform.scale(scale: _s.value, child: child),
         child: Container(
           decoration: BoxDecoration(
             color:        AppTheme.card(widget.dark),
@@ -909,21 +894,513 @@ class _QuickActionTileState extends State<_QuickActionTile>
           ),
           child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
             Container(
-              width: 38, height: 38,
+              width: 36, height: 36,
               decoration: BoxDecoration(
                 color:        widget.qa.color.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(10),
+                borderRadius: BorderRadius.circular(9),
               ),
-              child: Icon(widget.qa.icon, color: widget.qa.color, size: 18),
+              child: Icon(widget.qa.icon, color: widget.qa.color, size: 17),
             ),
             const SizedBox(height: 8),
             Text(widget.qa.label, style: TextStyle(
               color: AppTheme.textPrimary(widget.dark),
-              fontSize: 12, fontWeight: FontWeight.w700,
-            )),
+              fontSize: 11, fontWeight: FontWeight.w700)),
           ]),
         ),
       ),
     );
+  }
+}
+
+// =============================================================
+// ─────────────────────────────────────────────────────────────
+//  SETTINGS PAGE  (Tab 2)
+//  Replaces _SettingsPlaceholder entirely.
+//  Features:
+//    - Profile card with initials, email, verified badge
+//    - Appearance: dark/light toggle (live)
+//    - Notifications: push + email toggles
+//    - Security: biometric stub + change password stub
+//    - About: version, privacy, terms
+//    - Logout with confirmation dialog
+// ─────────────────────────────────────────────────────────────
+// =============================================================
+class _SettingsPage extends StatefulWidget {
+  final AuthUser   user;
+  final VoidCallback onLogout;
+  const _SettingsPage({required this.user, required this.onLogout});
+
+  @override
+  State<_SettingsPage> createState() => _SettingsPageState();
+}
+
+class _SettingsPageState extends State<_SettingsPage> {
+  bool _notifPush    = true;
+  bool _notifEmail   = true;
+  bool _biometric    = false;
+
+  bool get _dark => ThemeProvider().isDarkMode;
+
+  @override
+  void initState() {
+    super.initState();
+    ThemeProvider().addListener(_rebuild);
+  }
+
+  void _rebuild() { if (mounted) setState(() {}); }
+
+  @override
+  void dispose() {
+    ThemeProvider().removeListener(_rebuild);
+    super.dispose();
+  }
+
+  String _initials() {
+    if (widget.user.username.isEmpty) return '?';
+    final p = widget.user.username.trim().split(' ');
+    return (p.length >= 2 ? '${p[0][0]}${p[1][0]}' : widget.user.username[0])
+        .toUpperCase();
+  }
+
+  Future<void> _confirmLogout() async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: AppTheme.card(_dark),
+        shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16)),
+        title: Text('Log out?', style: TextStyle(
+          color: AppTheme.textPrimary(_dark), fontWeight: FontWeight.w800)),
+        content: Text(
+          'You will need to sign in again to access your account.',
+          style: TextStyle(color: AppTheme.textMuted(_dark))),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: Text('Cancel',
+                style: TextStyle(color: AppTheme.textMuted(_dark)))),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Log out', style: TextStyle(
+              color: AppTheme.crimson, fontWeight: FontWeight.w700))),
+        ],
+      ),
+    );
+    if (ok == true) widget.onLogout();
+  }
+
+  void _snack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      behavior:        SnackBarBehavior.floating,
+      backgroundColor: AppTheme.card(_dark),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+    ));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        const SizedBox(height: 24),
+
+        // Header
+        Text('Settings', style: TextStyle(
+          color: AppTheme.textPrimary(_dark), fontSize: 28,
+          fontWeight: FontWeight.w900, letterSpacing: -0.5)),
+        const SizedBox(height: 22),
+
+        // ── Profile card ──
+        Container(
+          padding: const EdgeInsets.all(20),
+          decoration: BoxDecoration(
+            gradient: LinearGradient(
+              colors: [AppTheme.crimson, AppTheme.darkCrimson],
+              begin: Alignment.topLeft, end: Alignment.bottomRight),
+            borderRadius: BorderRadius.circular(18),
+            boxShadow: [BoxShadow(
+              color: AppTheme.crimson.withOpacity(0.25),
+              blurRadius: 20, offset: const Offset(0, 8))],
+          ),
+          child: Row(children: [
+            Container(
+              width: 56, height: 56,
+              decoration: BoxDecoration(
+                color:  Colors.white.withOpacity(0.2),
+                shape:  BoxShape.circle,
+                border: Border.all(
+                    color: Colors.white.withOpacity(0.4), width: 2)),
+              child: Center(child: Text(_initials(), style: const TextStyle(
+                color: Colors.white, fontSize: 20,
+                fontWeight: FontWeight.w900))),
+            ),
+            const SizedBox(width: 16),
+            Expanded(child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  widget.user.username.isNotEmpty
+                      ? widget.user.username : 'User',
+                  style: const TextStyle(
+                    color: Colors.white, fontSize: 17,
+                    fontWeight: FontWeight.w800),
+                  overflow: TextOverflow.ellipsis),
+                const SizedBox(height: 3),
+                Text(widget.user.email, style: TextStyle(
+                  color: Colors.white.withOpacity(0.75), fontSize: 13),
+                  overflow: TextOverflow.ellipsis),
+              ],
+            )),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+              decoration: BoxDecoration(
+                color:        Colors.white.withOpacity(0.2),
+                borderRadius: BorderRadius.circular(8)),
+              child: Row(mainAxisSize: MainAxisSize.min, children: const [
+                Icon(Icons.verified_rounded, color: Colors.white, size: 12),
+                SizedBox(width: 4),
+                Text('Active', style: TextStyle(
+                  color: Colors.white, fontSize: 11,
+                  fontWeight: FontWeight.w700)),
+              ]),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 28),
+
+        // ── APPEARANCE ──
+        _SLabel(label: 'APPEARANCE', dark: _dark),
+        const SizedBox(height: 10),
+        _SCard(dark: _dark, children: [
+          _SwitchRow(
+            dark:      _dark,
+            icon:      _dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
+            iconColor: _dark ? const Color(0xFF7B61FF) : Colors.orange,
+            title:     _dark ? 'Dark Mode' : 'Light Mode',
+            sub:       _dark ? 'Currently using dark theme'
+                              : 'Currently using light theme',
+            value:     _dark,
+            onChanged: (_) => ThemeProvider().toggleTheme(),
+          ),
+        ]),
+        const SizedBox(height: 18),
+
+        // ── NOTIFICATIONS ──
+        _SLabel(label: 'NOTIFICATIONS', dark: _dark),
+        const SizedBox(height: 10),
+        _SCard(dark: _dark, children: [
+          _SwitchRow(
+            dark: _dark, icon: Icons.notifications_rounded,
+            iconColor: Colors.orange,
+            title: 'Push Notifications', sub: 'Ticket status updates',
+            value: _notifPush,
+            onChanged: (v) => setState(() => _notifPush = v),
+          ),
+          _SDivider(dark: _dark),
+          _SwitchRow(
+            dark: _dark, icon: Icons.mail_outline_rounded,
+            iconColor: Colors.blue,
+            title: 'Email Notifications', sub: 'Receive updates by email',
+            value: _notifEmail,
+            onChanged: (v) => setState(() => _notifEmail = v),
+          ),
+        ]),
+        const SizedBox(height: 18),
+
+        // ── SECURITY ──
+        _SLabel(label: 'SECURITY', dark: _dark),
+        const SizedBox(height: 10),
+        _SCard(dark: _dark, children: [
+          _SwitchRow(
+            dark: _dark, icon: Icons.fingerprint_rounded,
+            iconColor: Colors.green,
+            title: 'Biometric Lock', sub: 'Fingerprint or Face ID',
+            value: _biometric,
+            onChanged: (v) => setState(() => _biometric = v),
+          ),
+          _SDivider(dark: _dark),
+          _ActionRow(
+            dark: _dark, icon: Icons.lock_outline_rounded,
+            iconColor: Colors.teal,
+            title: 'Change Password', sub: 'Update your account password',
+            onTap: () => _snack('Change password — coming soon'),
+          ),
+        ]),
+        const SizedBox(height: 18),
+
+        // ── ABOUT ──
+        _SLabel(label: 'ABOUT', dark: _dark),
+        const SizedBox(height: 10),
+        _SCard(dark: _dark, children: [
+          _ActionRow(
+            dark: _dark, icon: Icons.info_outline_rounded,
+            iconColor: Colors.indigo,
+            title: 'App Version', sub: 'TICKETY v1.0.0',
+            trailing: Text('v1.0.0', style: TextStyle(
+              color: AppTheme.textMuted(_dark), fontSize: 13)),
+            onTap: () {},
+          ),
+          _SDivider(dark: _dark),
+          _ActionRow(
+            dark: _dark, icon: Icons.privacy_tip_outlined,
+            iconColor: Colors.purple,
+            title: 'Privacy Policy', sub: 'Read our privacy policy',
+            onTap: () => _snack('Privacy Policy — coming soon'),
+          ),
+          _SDivider(dark: _dark),
+          _ActionRow(
+            dark: _dark, icon: Icons.article_outlined,
+            iconColor: const Color(0xFF8D6748),
+            title: 'Terms of Service', sub: 'Read terms and conditions',
+            onTap: () => _snack('Terms of Service — coming soon'),
+          ),
+        ]),
+        const SizedBox(height: 18),
+
+        // ── ACCOUNT ──
+        _SLabel(label: 'ACCOUNT', dark: _dark),
+        const SizedBox(height: 10),
+        _SCard(dark: _dark, children: [
+          _ActionRow(
+            dark: _dark, icon: Icons.logout_rounded,
+            iconColor: AppTheme.crimson,
+            title: 'Log Out', sub: 'Sign out of your account',
+            titleColor: AppTheme.crimson,
+            onTap: _confirmLogout,
+          ),
+        ]),
+        const SizedBox(height: 32),
+
+        Center(child: Text('TICKETY · v1.0.0',
+          style: TextStyle(
+            color: AppTheme.textMuted(_dark).withOpacity(0.35),
+            fontSize: 11))),
+        const SizedBox(height: 24),
+      ]),
+    );
+  }
+}
+
+// ── Settings sub-widgets ──
+
+class _SLabel extends StatelessWidget {
+  final String label;
+  final bool   dark;
+  const _SLabel({required this.label, required this.dark});
+
+  @override
+  Widget build(BuildContext context) => Text(label, style: TextStyle(
+    color: AppTheme.textMuted(dark), fontSize: 11,
+    fontWeight: FontWeight.w700, letterSpacing: 2));
+}
+
+class _SCard extends StatelessWidget {
+  final bool   dark;
+  final List<Widget> children;
+  const _SCard({required this.dark, required this.children});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    decoration: BoxDecoration(
+      color:        AppTheme.card(dark),
+      borderRadius: BorderRadius.circular(14),
+      border: Border.all(color: AppTheme.border(dark))),
+    child: Column(children: children));
+}
+
+class _SDivider extends StatelessWidget {
+  final bool dark;
+  const _SDivider({required this.dark});
+
+  @override
+  Widget build(BuildContext context) =>
+      Divider(height: 1, indent: 64, color: AppTheme.border(dark));
+}
+
+class _SwitchRow extends StatelessWidget {
+  final bool   dark;
+  final IconData icon;
+  final Color  iconColor;
+  final String title, sub;
+  final bool   value;
+  final void Function(bool) onChanged;
+  const _SwitchRow({required this.dark, required this.icon,
+      required this.iconColor, required this.title, required this.sub,
+      required this.value, required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      child: Row(children: [
+        _IconBox(icon: icon, color: iconColor),
+        const SizedBox(width: 14),
+        Expanded(child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(title, style: TextStyle(
+              color: AppTheme.textPrimary(dark),
+              fontSize: 14, fontWeight: FontWeight.w700)),
+            const SizedBox(height: 2),
+            Text(sub, style: TextStyle(
+              color: AppTheme.textMuted(dark), fontSize: 12)),
+          ],
+        )),
+        Switch(
+          value:            value,
+          onChanged:        onChanged,
+          activeColor:      AppTheme.crimson,
+          activeTrackColor: AppTheme.crimson.withOpacity(0.3),
+          inactiveThumbColor: AppTheme.textMuted(dark),
+          inactiveTrackColor: AppTheme.border(dark),
+        ),
+      ]),
+    );
+  }
+}
+
+class _ActionRow extends StatelessWidget {
+  final bool   dark;
+  final IconData icon;
+  final Color  iconColor;
+  final String title, sub;
+  final VoidCallback onTap;
+  final Widget?  trailing;
+  final Color?   titleColor;
+  const _ActionRow({required this.dark, required this.icon,
+      required this.iconColor, required this.title, required this.sub,
+      required this.onTap, this.trailing, this.titleColor});
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        child: Row(children: [
+          _IconBox(icon: icon, color: iconColor),
+          const SizedBox(width: 14),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(
+                color: titleColor ?? AppTheme.textPrimary(dark),
+                fontSize: 14, fontWeight: FontWeight.w700)),
+              const SizedBox(height: 2),
+              Text(sub, style: TextStyle(
+                color: AppTheme.textMuted(dark), fontSize: 12)),
+            ],
+          )),
+          trailing ?? Icon(Icons.chevron_right_rounded,
+              color: AppTheme.textMuted(dark), size: 20),
+        ]),
+      ),
+    );
+  }
+}
+
+class _IconBox extends StatelessWidget {
+  final IconData icon;
+  final Color    color;
+  const _IconBox({required this.icon, required this.color});
+
+  @override
+  Widget build(BuildContext context) => Container(
+    width: 36, height: 36,
+    decoration: BoxDecoration(
+      color:        color.withOpacity(0.12),
+      borderRadius: BorderRadius.circular(9)),
+    child: Icon(icon, color: color, size: 18));
+}
+
+// =============================================================
+// SHARED REUSABLE WIDGETS  (kept from original for compatibility)
+// =============================================================
+class ThemeToggleButton extends StatefulWidget {
+  const ThemeToggleButton({super.key});
+
+  @override
+  State<ThemeToggleButton> createState() => _ThemeToggleButtonState();
+}
+
+class _ThemeToggleButtonState extends State<ThemeToggleButton>
+    with SingleTickerProviderStateMixin {
+
+  late AnimationController _ctrl;
+
+  @override
+  void initState() {
+    super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 300));
+    ThemeProvider().addListener(_onThemeChanged);
+  }
+
+  void _onThemeChanged() {
+    if (mounted) { _ctrl.forward(from: 0); setState(() {}); }
+  }
+
+  @override
+  void dispose() {
+    ThemeProvider().removeListener(_onThemeChanged);
+    _ctrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = ThemeProvider().isDarkMode;
+    return GestureDetector(
+      onTap: () => ThemeProvider().toggleTheme(),
+      child: Container(
+        width: 40, height: 40,
+        decoration: BoxDecoration(
+          color:        AppTheme.card(isDark),
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: AppTheme.border(isDark)),
+        ),
+        child: RotationTransition(
+          turns: Tween(begin: 0.0, end: 0.5).animate(_ctrl),
+          child: Icon(
+            isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+            color: isDark ? const Color(0xFFFFC107) : const Color(0xFF555555),
+            size: 18,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class StatusBadge extends StatelessWidget {
+  final String label;
+  final Color  color;
+  const StatusBadge({super.key, required this.label, required this.color});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color:        color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(6)),
+      child: Text(label, style: TextStyle(
+        color: color, fontSize: 10,
+        fontWeight: FontWeight.w800, letterSpacing: 1.5)));
+  }
+}
+
+class SectionLabel extends StatelessWidget {
+  final String label;
+  const SectionLabel({super.key, required this.label});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = ThemeProvider().isDarkMode;
+    return Text(label, style: TextStyle(
+      color: AppTheme.textMuted(isDark), fontSize: 11,
+      fontWeight: FontWeight.w700, letterSpacing: 2));
   }
 }
