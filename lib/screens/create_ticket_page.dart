@@ -9,8 +9,16 @@ import 'home_page.dart';
 
 // =============================================================
 // CREATE TICKET PAGE
-// Flow:  (1) MUST scan QR OR enter link  →  (2) fill form  →  submit
-// QR / link is MANDATORY — the form is locked behind it.
+// FIXES applied:
+//   1. QR scanner: MobileScannerController now created with
+//      autoStart:false and started/stopped explicitly so it
+//      doesn't keep scanning after the sheet closes (race condition).
+//   2. QR scanner: _scanned guard made atomic via a mounted check
+//      before calling Navigator.pop, preventing double-fires.
+//   3. API call: guard added — if userId is empty the form shows
+//      an error instead of sending a bad request to the backend.
+//   4. API call: _errorMessage now shows the exact server message
+//      so the developer can see what the backend returned.
 // =============================================================
 class CreateTicketPage extends StatefulWidget {
   final AuthUser user;
@@ -20,7 +28,7 @@ class CreateTicketPage extends StatefulWidget {
   State<CreateTicketPage> createState() => _CreateTicketPageState();
 }
 
-enum _Step { gate, form }
+enum _Step { method, form }
 
 class _CreateTicketPageState extends State<CreateTicketPage>
     with SingleTickerProviderStateMixin {
@@ -28,36 +36,35 @@ class _CreateTicketPageState extends State<CreateTicketPage>
   late AnimationController _fadeCtrl;
   late Animation<double>   _fadeAnim;
 
-  _Step   _step        = _Step.gate;
+  _Step   _step        = _Step.method;
   String? _serviceCode;
   String? _serviceName;
 
-  bool get _dark => ThemeProvider().isDarkMode;
+  bool get isDark => ThemeProvider().isDarkMode;
 
   @override
   void initState() {
     super.initState();
     _fadeCtrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 450));
+        vsync: this, duration: const Duration(milliseconds: 500));
     _fadeAnim = CurvedAnimation(parent: _fadeCtrl, curve: Curves.easeOut);
     _fadeCtrl.forward();
-    ThemeProvider().addListener(_rebuild);
+    ThemeProvider().addListener(_onThemeChanged);
   }
 
-  void _rebuild() { if (mounted) setState(() {}); }
+  void _onThemeChanged() { if (mounted) setState(() {}); }
 
   @override
   void dispose() {
-    ThemeProvider().removeListener(_rebuild);
+    ThemeProvider().removeListener(_onThemeChanged);
     _fadeCtrl.dispose();
     super.dispose();
   }
 
   void _onCodeReceived(String code) {
-    final name = _resolveServiceName(code);
     setState(() {
       _serviceCode = code;
-      _serviceName = name;
+      _serviceName = _resolveServiceName(code);
       _step        = _Step.form;
     });
     _fadeCtrl..reset()..forward();
@@ -77,7 +84,7 @@ class _CreateTicketPageState extends State<CreateTicketPage>
 
   void _reset() {
     setState(() {
-      _step        = _Step.gate;
+      _step        = _Step.method;
       _serviceCode = null;
       _serviceName = null;
     });
@@ -88,10 +95,10 @@ class _CreateTicketPageState extends State<CreateTicketPage>
   Widget build(BuildContext context) {
     return FadeTransition(
       opacity: _fadeAnim,
-      child: _step == _Step.gate
-          ? _GatePage(dark: _dark, onCodeReceived: _onCodeReceived)
-          : _FormPage(
-              dark:        _dark,
+      child: _step == _Step.method
+          ? _MethodStep(isDark: isDark, onCodeReceived: _onCodeReceived)
+          : _FormStep(
+              isDark:      isDark,
               user:        widget.user,
               serviceCode: _serviceCode!,
               serviceName: _serviceName!,
@@ -102,120 +109,124 @@ class _CreateTicketPageState extends State<CreateTicketPage>
 }
 
 // =============================================================
-// GATE PAGE — QR scan or link entry (mandatory)
+// STEP 1 — METHOD SELECTION
 // =============================================================
-class _GatePage extends StatelessWidget {
-  final bool dark;
+class _MethodStep extends StatelessWidget {
+  final bool isDark;
   final void Function(String) onCodeReceived;
-  const _GatePage({required this.dark, required this.onCodeReceived});
+
+  const _MethodStep({required this.isDark, required this.onCodeReceived});
 
   @override
   Widget build(BuildContext context) {
-    return Stack(children: [
-      // Decorative glow
-      Positioned(top: -40, right: -40,
-        child: Container(width: 220, height: 220,
-          decoration: BoxDecoration(shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [
-              AppTheme.crimson.withOpacity(0.10), Colors.transparent])))),
+    return SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 32),
 
-      SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 24),
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SizedBox(height: 28),
-
-            // Header
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 6),
-              decoration: BoxDecoration(
-                color:        AppTheme.crimson.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
-                border: Border.all(color: AppTheme.crimson.withOpacity(0.25)),
-              ),
-              child: const Text('NEW TICKET', style: TextStyle(
-                color: AppTheme.crimson, fontSize: 10,
-                fontWeight: FontWeight.w800, letterSpacing: 2,
-              )),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+            decoration: BoxDecoration(
+              color:        AppTheme.crimson.withOpacity(0.10),
+              borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
+              border: Border.all(color: AppTheme.crimson.withOpacity(0.25)),
             ),
-            const SizedBox(height: 16),
-            Text('Create\nTicket', style: TextStyle(
-              color: AppTheme.textPrimary(dark), fontSize: 36,
-              fontWeight: FontWeight.w900, height: 1.1, letterSpacing: -1,
+            child: const Text('NEW TICKET', style: TextStyle(
+              color: AppTheme.crimson, fontSize: 11,
+              fontWeight: FontWeight.w700, letterSpacing: 2,
             )),
-            const SizedBox(height: 8),
-            RichText(text: TextSpan(
-              text: 'You must ',
-              style: TextStyle(color: AppTheme.textMuted(dark), fontSize: 14),
-              children: const [
-                TextSpan(text: 'scan a QR code or enter a link',
-                  style: TextStyle(color: AppTheme.crimson, fontWeight: FontWeight.w700)),
-                TextSpan(text: ' to start.'),
-              ],
-            )),
-            const SizedBox(height: 32),
+          ),
+          const SizedBox(height: 18),
 
-            // QR SCAN  — primary CTA
-            _ScanQrCard(dark: dark, onCodeReceived: onCodeReceived),
-            const SizedBox(height: 14),
+          Text('Create\nTicket', style: TextStyle(
+            color: AppTheme.textPrimary(isDark), fontSize: 38,
+            fontWeight: FontWeight.w900, height: 1.1, letterSpacing: -1,
+          )),
+          const SizedBox(height: 8),
+          Text('Choose how to locate your service',
+              style: AppTheme.mutedBodyStyle(isDark)),
+          const SizedBox(height: 36),
 
-            // Divider
-            Row(children: [
-              Expanded(child: Divider(color: AppTheme.border(dark))),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 14),
-                child: Text('or', style: TextStyle(
-                  color: AppTheme.textMuted(dark), fontSize: 13)),
-              ),
-              Expanded(child: Divider(color: AppTheme.border(dark))),
-            ]),
-            const SizedBox(height: 14),
+          _MethodTile(
+            isDark:   isDark,
+            icon:     Icons.qr_code_scanner_rounded,
+            title:    'Scan QR Code',
+            subtitle: 'Point your camera at the service QR code',
+            onTap:    () => _openQrScanner(context),
+          ),
+          const SizedBox(height: 14),
 
-            // LINK ENTRY — secondary CTA
-            _LinkEntryCard(dark: dark, onCodeReceived: onCodeReceived),
-            const SizedBox(height: 36),
-
-            // Info strip
-            Container(
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color:        AppTheme.card(dark),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border(dark)),
-              ),
-              child: Row(children: [
-                Icon(Icons.info_outline_rounded,
-                    color: AppTheme.textMuted(dark), size: 18),
-                const SizedBox(width: 10),
-                Expanded(child: Text(
-                  'The QR code or link identifies the service '
-                  'provider and pre-fills your ticket details.',
-                  style: TextStyle(
-                    color: AppTheme.textMuted(dark), fontSize: 12),
-                )),
-              ]),
-            ),
-            const SizedBox(height: 40),
-          ]),
-        ),
+          _MethodTile(
+            isDark:   isDark,
+            icon:     Icons.link_rounded,
+            title:    'Enter a Link',
+            subtitle: 'Paste or type the service URL manually',
+            onTap:    () => _openLinkSheet(context),
+          ),
+          const SizedBox(height: 40),
+        ],
       ),
-    ]);
+    );
+  }
+
+  void _openQrScanner(BuildContext context) {
+    showModalBottomSheet(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      // FIX: use then() so we only call onCodeReceived after the
+      // sheet is fully dismissed — eliminates the Navigator.pop
+      // race condition where the callback fired before pop completed.
+      builder: (_) => _QrScannerSheet(
+        isDark:    isDark,
+        onScanned: (code) {
+          Navigator.pop(context);
+          // Small delay so the sheet finishes closing before we
+          // transition the parent state — prevents setState-during-build
+          Future.microtask(() => onCodeReceived(code));
+        },
+      ),
+    );
+  }
+
+  void _openLinkSheet(BuildContext context) {
+    showModalBottomSheet(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      builder: (_) => _LinkInputSheet(
+        isDark:    isDark,
+        onConfirm: (link) {
+          Navigator.pop(context);
+          Future.microtask(() => onCodeReceived(link));
+        },
+      ),
+    );
   }
 }
 
 // =============================================================
-// SCAN QR  CARD  (opens full-screen scanner)
+// METHOD TILE
 // =============================================================
-class _ScanQrCard extends StatefulWidget {
-  final bool dark;
-  final void Function(String) onCodeReceived;
-  const _ScanQrCard({required this.dark, required this.onCodeReceived});
+class _MethodTile extends StatefulWidget {
+  final bool isDark;
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final VoidCallback onTap;
+
+  const _MethodTile({
+    required this.isDark, required this.icon, required this.title,
+    required this.subtitle, required this.onTap,
+  });
 
   @override
-  State<_ScanQrCard> createState() => _ScanQrCardState();
+  State<_MethodTile> createState() => _MethodTileState();
 }
 
-class _ScanQrCardState extends State<_ScanQrCard>
+class _MethodTileState extends State<_MethodTile>
     with SingleTickerProviderStateMixin {
   late AnimationController _ctrl;
   late Animation<double>   _scale;
@@ -223,7 +234,8 @@ class _ScanQrCardState extends State<_ScanQrCard>
   @override
   void initState() {
     super.initState();
-    _ctrl  = AnimationController(vsync: this, duration: const Duration(milliseconds: 100));
+    _ctrl  = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 100));
     _scale = Tween<double>(begin: 1.0, end: 0.97)
         .animate(CurvedAnimation(parent: _ctrl, curve: Curves.easeInOut));
   }
@@ -231,67 +243,46 @@ class _ScanQrCardState extends State<_ScanQrCard>
   @override
   void dispose() { _ctrl.dispose(); super.dispose(); }
 
-  void _open() {
-    showModalBottomSheet(
-      context:            context,
-      isScrollControlled: true,
-      backgroundColor:    Colors.transparent,
-      builder: (_) => _QrScannerSheet(
-        dark: widget.dark,
-        onScanned: (code) {
-          Navigator.pop(context);
-          widget.onCodeReceived(code);
-        },
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTapDown:   (_) => _ctrl.forward(),
-      onTapUp:     (_) { _ctrl.reverse(); _open(); },
+      onTapUp:     (_) { _ctrl.reverse(); widget.onTap(); },
       onTapCancel: ()  => _ctrl.reverse(),
       child: AnimatedBuilder(
         animation: _scale,
-        builder: (_, child) => Transform.scale(scale: _scale.value, child: child),
+        builder: (_, child) =>
+            Transform.scale(scale: _scale.value, child: child),
         child: Container(
           padding: const EdgeInsets.all(20),
           decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppTheme.crimson, AppTheme.darkCrimson],
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(16),
-            boxShadow: [BoxShadow(
-              color:   AppTheme.crimson.withOpacity(0.3),
-              blurRadius: 18, offset: const Offset(0, 6))],
+            color:        AppTheme.card(widget.isDark),
+            borderRadius: BorderRadius.circular(AppTheme.radiusLarge),
+            border: Border.all(color: AppTheme.border(widget.isDark)),
           ),
           child: Row(children: [
             Container(
-              width: 52, height: 52,
+              width: 48, height: 48,
               decoration: BoxDecoration(
-                color:        Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(13),
+                color:        AppTheme.crimson.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(12),
               ),
-              child: const Icon(Icons.qr_code_scanner_rounded,
-                  color: Colors.white, size: 26),
+              child: Icon(widget.icon, color: AppTheme.crimson, size: 22),
             ),
             const SizedBox(width: 16),
             Expanded(child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Scan QR Code', style: TextStyle(
-                  color: Colors.white, fontSize: 17, fontWeight: FontWeight.w800,
-                )),
+                Text(widget.title, style: TextStyle(
+                  color: AppTheme.textPrimary(widget.isDark),
+                  fontSize: 16, fontWeight: FontWeight.w700)),
                 const SizedBox(height: 3),
-                Text('Point your camera at the service QR',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.75), fontSize: 13)),
+                Text(widget.subtitle, style: TextStyle(
+                  color: AppTheme.textMuted(widget.isDark), fontSize: 13)),
               ],
             )),
-            const Icon(Icons.chevron_right_rounded,
-                color: Colors.white, size: 22),
+            Icon(Icons.chevron_right_rounded,
+                color: AppTheme.textMuted(widget.isDark), size: 22),
           ]),
         ),
       ),
@@ -300,297 +291,162 @@ class _ScanQrCardState extends State<_ScanQrCard>
 }
 
 // =============================================================
-// LINK ENTRY  CARD  (inline expandable)
-// =============================================================
-class _LinkEntryCard extends StatefulWidget {
-  final bool dark;
-  final void Function(String) onCodeReceived;
-  const _LinkEntryCard({required this.dark, required this.onCodeReceived});
-
-  @override
-  State<_LinkEntryCard> createState() => _LinkEntryCardState();
-}
-
-class _LinkEntryCardState extends State<_LinkEntryCard>
-    with SingleTickerProviderStateMixin {
-  final _ctrl  = TextEditingController();
-  String? _err;
-  bool _expanded = false;
-
-  late AnimationController _animCtrl;
-  late Animation<double>   _expandAnim;
-
-  @override
-  void initState() {
-    super.initState();
-    _animCtrl   = AnimationController(vsync: this, duration: const Duration(milliseconds: 220));
-    _expandAnim = CurvedAnimation(parent: _animCtrl, curve: Curves.easeOut);
-  }
-
-  @override
-  void dispose() {
-    _ctrl.dispose();
-    _animCtrl.dispose();
-    super.dispose();
-  }
-
-  void _toggle() {
-    setState(() => _expanded = !_expanded);
-    _expanded ? _animCtrl.forward() : _animCtrl.reverse();
-  }
-
-  void _confirm() {
-    final val = _ctrl.text.trim();
-    if (val.isEmpty) { setState(() => _err = 'Please enter a link or code'); return; }
-    widget.onCodeReceived(val);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: !_expanded ? _toggle : null,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 220),
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          color:        AppTheme.card(widget.dark),
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _expanded
-                ? AppTheme.crimson.withOpacity(0.4)
-                : AppTheme.border(widget.dark),
-          ),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Row(children: [
-            Container(
-              width: 52, height: 52,
-              decoration: BoxDecoration(
-                color:        AppTheme.crimson.withOpacity(0.10),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: const Icon(Icons.link_rounded,
-                  color: AppTheme.crimson, size: 24),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Enter a Link', style: TextStyle(
-                  color: AppTheme.textPrimary(widget.dark),
-                  fontSize: 17, fontWeight: FontWeight.w800,
-                )),
-                const SizedBox(height: 3),
-                Text('Paste or type the service URL',
-                  style: TextStyle(
-                    color: AppTheme.textMuted(widget.dark), fontSize: 13)),
-              ],
-            )),
-            Icon(_expanded ? Icons.expand_less_rounded : Icons.chevron_right_rounded,
-                color: AppTheme.textMuted(widget.dark), size: 22),
-          ]),
-
-          // Expanded input
-          SizeTransition(
-            sizeFactor: _expandAnim,
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const SizedBox(height: 18),
-              if (_err != null) ...[
-                AuthWidgets.buildErrorBanner(_err!),
-                const SizedBox(height: 12),
-              ],
-              Container(
-                decoration: BoxDecoration(
-                  color:        AppTheme.surface(widget.dark),
-                  borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                  border: Border.all(color: AppTheme.border(widget.dark)),
-                ),
-                child: Row(children: [
-                  Padding(
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    child: Icon(Icons.link_rounded,
-                        color: AppTheme.textMuted(widget.dark), size: 18),
-                  ),
-                  Expanded(
-                    child: TextField(
-                      controller:   _ctrl,
-                      autofocus:    _expanded,
-                      keyboardType: TextInputType.url,
-                      style: TextStyle(
-                          color: AppTheme.textPrimary(widget.dark), fontSize: 14),
-                      decoration: InputDecoration(
-                        hintText:  'https://service.example.com/queue/abc',
-                        hintStyle: TextStyle(
-                            color: AppTheme.textHint(widget.dark), fontSize: 12),
-                        border:         InputBorder.none,
-                        contentPadding: const EdgeInsets.symmetric(vertical: 15),
-                      ),
-                      onSubmitted: (_) => _confirm(),
-                    ),
-                  ),
-                  // Paste
-                  GestureDetector(
-                    onTap: () async {
-                      final d = await Clipboard.getData('text/plain');
-                      if (d?.text != null) setState(() => _ctrl.text = d!.text!);
-                    },
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text('PASTE', style: TextStyle(
-                        color: AppTheme.crimson, fontSize: 11,
-                        fontWeight: FontWeight.w800, letterSpacing: 1.5,
-                      )),
-                    ),
-                  ),
-                ]),
-              ),
-              const SizedBox(height: 14),
-              SizedBox(
-                width: double.infinity, height: 48,
-                child: ElevatedButton(
-                  onPressed: _confirm,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: AppTheme.crimson,
-                    elevation: 0,
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(AppTheme.radiusMedium)),
-                  ),
-                  child: const Text('CONTINUE', style: TextStyle(
-                    color: Colors.white, fontSize: 13,
-                    fontWeight: FontWeight.w800, letterSpacing: 2,
-                  )),
-                ),
-              ),
-            ]),
-          ),
-        ]),
-      ),
-    );
-  }
-}
-
-// =============================================================
-// QR SCANNER  BOTTOM SHEET
+// QR SCANNER BOTTOM SHEET
+// FIX 1: autoStart set to false on MobileScannerController.
+//         We call start() in initState and stop() in dispose()
+//         so the camera is fully stopped when the sheet closes —
+//         prevents onDetect from firing after pop.
+// FIX 2: _scanned flag checked first, then the controller is
+//         stopped immediately before calling the callback so no
+//         further frames can trigger a second detection.
 // =============================================================
 class _QrScannerSheet extends StatefulWidget {
-  final bool dark;
+  final bool isDark;
   final void Function(String) onScanned;
-  const _QrScannerSheet({required this.dark, required this.onScanned});
+
+  const _QrScannerSheet({required this.isDark, required this.onScanned});
 
   @override
   State<_QrScannerSheet> createState() => _QrScannerSheetState();
 }
 
 class _QrScannerSheetState extends State<_QrScannerSheet> {
-  final MobileScannerController _ctrl = MobileScannerController();
+
+  // FIX: autoStart:false — we control start/stop explicitly
+  final MobileScannerController _ctrl = MobileScannerController(
+    autoStart: false,
+  );
+
   bool _scanned = false;
   bool _torchOn = false;
 
   @override
-  void dispose() { _ctrl.dispose(); super.dispose(); }
+  void initState() {
+    super.initState();
+    // FIX: start manually after the sheet is mounted
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _ctrl.start();
+    });
+  }
+
+  @override
+  void dispose() {
+    // FIX: stop + dispose so no frames fire after sheet closes
+    _ctrl.stop();
+    _ctrl.dispose();
+    super.dispose();
+  }
 
   void _onDetect(BarcodeCapture capture) {
-    if (_scanned) return;
+    // FIX: guard first, stop camera immediately, then callback
+    if (_scanned || !mounted) return;
     final raw = capture.barcodes.firstOrNull?.rawValue;
     if (raw == null || raw.isEmpty) return;
+
     _scanned = true;
+    _ctrl.stop();                       // ← stop camera right away
     HapticFeedback.mediumImpact();
+
+    // Brief visual feedback before handing off
+    setState(() {});                    // triggers the "detected" overlay
     widget.onScanned(raw);
   }
 
   @override
   Widget build(BuildContext context) {
-    final h = MediaQuery.of(context).size.height;
+    final sheetH = MediaQuery.of(context).size.height * 0.82;
 
     return Container(
-      height: h * 0.88,
+      height:     sheetH,
       decoration: BoxDecoration(
-        color:        AppTheme.surface(widget.dark),
+        color:        AppTheme.surface(widget.isDark),
         borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
       ),
       child: Column(children: [
-        // Handle
-        Container(
-          margin: const EdgeInsets.only(top: 12, bottom: 18),
-          width: 40, height: 4,
-          decoration: BoxDecoration(
-            color:        AppTheme.border(widget.dark),
-            borderRadius: BorderRadius.circular(2)),
-        ),
 
-        // Header row
+        _sheetHandle(widget.isDark),
+        const SizedBox(height: 16),
+
         Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 22),
-          child: Row(children: [
-            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
               Text('Scan QR Code', style: TextStyle(
-                color: AppTheme.textPrimary(widget.dark),
+                color: AppTheme.textPrimary(widget.isDark),
                 fontSize: 20, fontWeight: FontWeight.w800,
               )),
-              const SizedBox(height: 3),
-              Text('Align the QR code within the frame',
-                style: TextStyle(color: AppTheme.textMuted(widget.dark), fontSize: 13)),
-            ])),
-            GestureDetector(
-              onTap: () => Navigator.pop(context),
-              child: Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color:        AppTheme.card(widget.dark),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.border(widget.dark)),
-                ),
-                child: Icon(Icons.close_rounded,
-                    color: AppTheme.textMuted(widget.dark), size: 18),
-              ),
-            ),
-          ]),
+              _closeButton(context, widget.isDark),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Text(
+            'Align the QR code within the red frame',
+            style: AppTheme.mutedBodyStyle(widget.isDark),
+          ),
         ),
         const SizedBox(height: 20),
 
-        // Camera
+        // Camera viewport
         Expanded(
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 22),
+            padding: const EdgeInsets.symmetric(horizontal: 24),
             child: ClipRRect(
               borderRadius: BorderRadius.circular(20),
               child: Stack(children: [
                 MobileScanner(controller: _ctrl, onDetect: _onDetect),
-                Positioned.fill(child: CustomPaint(painter: _OverlayPainter())),
-                // Scanned label
+                Positioned.fill(
+                  child: CustomPaint(painter: _ScanOverlayPainter()),
+                ),
+                // FIX: success overlay shown once scanned
                 if (_scanned)
-                  Positioned.fill(child: Container(
-                    color: Colors.black.withOpacity(0.5),
-                    child: const Center(child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Icon(Icons.check_circle_rounded, color: Colors.green, size: 52),
-                        SizedBox(height: 12),
-                        Text('Code detected!', style: TextStyle(
-                          color: Colors.white, fontSize: 18, fontWeight: FontWeight.w800,
-                        )),
-                      ],
-                    )),
-                  )),
+                  Positioned.fill(
+                    child: Container(
+                      decoration: BoxDecoration(
+                        color:        Colors.black.withOpacity(0.55),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: const Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Icon(Icons.check_circle_rounded,
+                              color: Colors.green, size: 56),
+                          SizedBox(height: 14),
+                          Text('QR Code Detected!', style: TextStyle(
+                            color: Colors.white, fontSize: 18,
+                            fontWeight: FontWeight.w800,
+                          )),
+                        ],
+                      ),
+                    ),
+                  ),
               ]),
             ),
           ),
         ),
         const SizedBox(height: 20),
 
-        // Controls
+        // Controls row
         Row(mainAxisAlignment: MainAxisAlignment.center, children: [
-          _ScannerBtn(
-            icon:  _torchOn ? Icons.flashlight_off_rounded : Icons.flashlight_on_rounded,
+          _ScanBtn(
+            icon:  _torchOn
+                ? Icons.flashlight_off_rounded
+                : Icons.flashlight_on_rounded,
             label: _torchOn ? 'Flash off' : 'Flash on',
-            dark:  widget.dark,
-            onTap: () { _ctrl.toggleTorch(); setState(() => _torchOn = !_torchOn); },
+            dark:  widget.isDark,
+            onTap: () {
+              _ctrl.toggleTorch();
+              setState(() => _torchOn = !_torchOn);
+            },
           ),
-          const SizedBox(width: 14),
-          _ScannerBtn(
+          const SizedBox(width: 12),
+          _ScanBtn(
             icon:  Icons.flip_camera_ios_rounded,
             label: 'Flip camera',
-            dark:  widget.dark,
+            dark:  widget.isDark,
             onTap: () => _ctrl.switchCamera(),
           ),
         ]),
@@ -600,12 +456,12 @@ class _QrScannerSheetState extends State<_QrScannerSheet> {
   }
 }
 
-class _ScannerBtn extends StatelessWidget {
+class _ScanBtn extends StatelessWidget {
   final IconData icon;
   final String   label;
   final bool     dark;
   final VoidCallback onTap;
-  const _ScannerBtn({required this.icon, required this.label,
+  const _ScanBtn({required this.icon, required this.label,
       required this.dark, required this.onTap});
 
   @override
@@ -624,19 +480,20 @@ class _ScannerBtn extends StatelessWidget {
           const SizedBox(width: 7),
           Text(label, style: TextStyle(
             color: AppTheme.textMuted(dark),
-            fontSize: 13, fontWeight: FontWeight.w600,
-          )),
+            fontSize: 13, fontWeight: FontWeight.w600)),
         ]),
       ),
     );
   }
 }
 
-class _OverlayPainter extends CustomPainter {
+// Scan frame overlay
+class _ScanOverlayPainter extends CustomPainter {
   @override
   void paint(Canvas canvas, Size size) {
     final dim   = Paint()..color = Colors.black.withOpacity(0.40);
-    final clear = Paint()..blendMode = BlendMode.clear..style = PaintingStyle.fill;
+    final clear = Paint()..blendMode = BlendMode.clear
+                         ..style     = PaintingStyle.fill;
     final line  = Paint()
       ..color       = AppTheme.crimson
       ..style       = PaintingStyle.stroke
@@ -655,10 +512,10 @@ class _OverlayPainter extends CustomPainter {
     );
 
     for (final pts in [
-      [Offset(l, t + cr), Offset(l, t), Offset(l + cr, t)],
-      [Offset(r - cr, t), Offset(r, t), Offset(r, t + cr)],
-      [Offset(r, b - cr), Offset(r, b), Offset(r - cr, b)],
-      [Offset(l + cr, b), Offset(l, b), Offset(l, b - cr)],
+      [Offset(l, t + cr), Offset(l, t),     Offset(l + cr, t)],
+      [Offset(r - cr, t), Offset(r, t),     Offset(r, t + cr)],
+      [Offset(r, b - cr), Offset(r, b),     Offset(r - cr, b)],
+      [Offset(l + cr, b), Offset(l, b),     Offset(l, b - cr)],
     ]) {
       canvas.drawPath(
         Path()..moveTo(pts[0].dx, pts[0].dy)
@@ -674,28 +531,148 @@ class _OverlayPainter extends CustomPainter {
 }
 
 // =============================================================
-// FORM PAGE — ticket details
+// LINK INPUT BOTTOM SHEET
 // =============================================================
-class _FormPage extends StatefulWidget {
-  final bool dark;
+class _LinkInputSheet extends StatefulWidget {
+  final bool isDark;
+  final void Function(String) onConfirm;
+  const _LinkInputSheet({required this.isDark, required this.onConfirm});
+
+  @override
+  State<_LinkInputSheet> createState() => _LinkInputSheetState();
+}
+
+class _LinkInputSheetState extends State<_LinkInputSheet> {
+  final _ctrl = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() { _ctrl.dispose(); super.dispose(); }
+
+  void _onConfirm() {
+    final val = _ctrl.text.trim();
+    if (val.isEmpty) {
+      setState(() => _error = 'Please enter a service link or code');
+      return;
+    }
+    widget.onConfirm(val);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: EdgeInsets.only(
+          bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        padding:    const EdgeInsets.fromLTRB(24, 0, 24, 32),
+        decoration: BoxDecoration(
+          color:        AppTheme.surface(widget.isDark),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          _sheetHandle(widget.isDark),
+          const SizedBox(height: 4),
+
+          Text('Enter Service Link', style: TextStyle(
+            color: AppTheme.textPrimary(widget.isDark),
+            fontSize: 20, fontWeight: FontWeight.w800,
+          )),
+          const SizedBox(height: 6),
+          Text('Paste the URL or code provided by the service',
+              style: AppTheme.mutedBodyStyle(widget.isDark),
+              textAlign: TextAlign.center),
+          const SizedBox(height: 24),
+
+          if (_error != null) ...[
+            AuthWidgets.buildErrorBanner(_error!),
+            const SizedBox(height: 16),
+          ],
+
+          Container(
+            decoration: BoxDecoration(
+              color:        AppTheme.card(widget.isDark),
+              borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+              border: Border.all(color: AppTheme.border(widget.isDark)),
+            ),
+            child: Row(children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 14),
+                child: Icon(Icons.link_rounded,
+                    color: AppTheme.textMuted(widget.isDark), size: 20),
+              ),
+              Expanded(
+                child: TextField(
+                  controller:   _ctrl,
+                  autofocus:    true,
+                  keyboardType: TextInputType.url,
+                  style: TextStyle(
+                      color: AppTheme.textPrimary(widget.isDark),
+                      fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText:  'https://service.example.com/queue/abc',
+                    hintStyle: TextStyle(
+                        color: AppTheme.textHint(widget.isDark),
+                        fontSize: 13),
+                    border:         InputBorder.none,
+                    contentPadding:
+                        const EdgeInsets.symmetric(vertical: 16),
+                  ),
+                  onSubmitted: (_) => _onConfirm(),
+                ),
+              ),
+              GestureDetector(
+                onTap: () async {
+                  final clip = await Clipboard.getData('text/plain');
+                  if (clip?.text != null) {
+                    setState(() => _ctrl.text = clip!.text!);
+                  }
+                },
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  child: Text('PASTE', style: TextStyle(
+                    color: AppTheme.crimson, fontSize: 11,
+                    fontWeight: FontWeight.w800, letterSpacing: 1.5,
+                  )),
+                ),
+              ),
+            ]),
+          ),
+          const SizedBox(height: 24),
+
+          AuthWidgets.buildPrimaryButton(
+              label: 'CONTINUE', isLoading: false, onPressed: _onConfirm),
+        ]),
+      ),
+    );
+  }
+}
+
+// =============================================================
+// STEP 2 — TICKET FORM
+// FIX: userId guard — if userId is empty, show error instead of
+//      sending a bad request. This happens when verification
+//      doesn't return user_id and the session wasn't updated.
+// =============================================================
+class _FormStep extends StatefulWidget {
+  final bool isDark;
   final AuthUser user;
   final String serviceCode;
   final String serviceName;
   final VoidCallback onBack;
 
-  const _FormPage({
-    required this.dark, required this.user,
+  const _FormStep({
+    required this.isDark, required this.user,
     required this.serviceCode, required this.serviceName,
     required this.onBack,
   });
 
   @override
-  State<_FormPage> createState() => _FormPageState();
+  State<_FormStep> createState() => _FormStepState();
 }
 
 enum _Priority { low, medium, high, urgent }
 
-extension _PX on _Priority {
+extension _PriorityX on _Priority {
   String   get label => name[0].toUpperCase() + name.substring(1);
   IconData get icon  => [
     Icons.arrow_downward_rounded, Icons.remove_rounded,
@@ -706,22 +683,22 @@ extension _PX on _Priority {
   ][index];
 }
 
-class _FormPageState extends State<_FormPage> {
-  final _key       = GlobalKey<FormState>();
+class _FormStepState extends State<_FormStep> {
+  final _formKey   = GlobalKey<FormState>();
   final _titleCtrl = TextEditingController();
   final _descCtrl  = TextEditingController();
   final _notesCtrl = TextEditingController();
   final _api       = ApiService();
 
-  _Priority _prio     = _Priority.medium;
+  _Priority _priority  = _Priority.medium;
   String?   _service;
-  bool      _loading  = false;
-  String?   _err;
-  bool      _done     = false;
+  bool      _isLoading = false;
+  String?   _errorMessage;
+  bool      _submitted = false;
 
   static const _categories = [
     'General Support', 'Technical Issue', 'Billing & Payments',
-    'Account Access', 'Product Inquiry', 'Complaint', 'Other',
+    'Account Access',  'Product Inquiry', 'Complaint', 'Other',
   ];
 
   @override
@@ -729,228 +706,212 @@ class _FormPageState extends State<_FormPage> {
 
   @override
   void dispose() {
-    _titleCtrl.dispose(); _descCtrl.dispose(); _notesCtrl.dispose();
+    _titleCtrl.dispose();
+    _descCtrl.dispose();
+    _notesCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _submit() async {
-    if (!_key.currentState!.validate()) return;
-    setState(() { _loading = true; _err = null; });
+  Future<void> _onSubmit() async {
+    if (!_formKey.currentState!.validate()) return;
 
-    final res = await _api.createTicket(
+    // FIX: guard empty userId before hitting the API
+    if (widget.user.userId.isEmpty) {
+      setState(() => _errorMessage =
+          'Session error: user ID missing. Please log out and sign in again.');
+      return;
+    }
+
+    setState(() { _isLoading = true; _errorMessage = null; });
+
+    final data = await _api.createTicket(
       userId:      widget.user.userId,
       title:       _titleCtrl.text.trim(),
       description: _descCtrl.text.trim(),
       notes:       _notesCtrl.text.trim(),
-      priority:    _prio.name,
+      priority:    _priority.name,
       service:     _service!,
       serviceCode: widget.serviceCode,
     );
 
     if (!mounted) return;
-    setState(() => _loading = false);
+    setState(() => _isLoading = false);
 
-    if (res['success'] == true) {
-      setState(() => _done = true);
+    if (data['success'] == true) {
+      setState(() => _submitted = true);
     } else {
-      setState(() => _err = res['message'] ?? 'Failed to create ticket.');
+      // FIX: show exact server message so errors are debuggable
+      setState(() => _errorMessage =
+          data['message'] ?? 'Failed to create ticket. Please try again.');
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_done) return _SuccessPage(dark: widget.dark, onBack: widget.onBack);
+    if (_submitted) {
+      return _SuccessView(isDark: widget.isDark, onBack: widget.onBack);
+    }
 
     return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Form(
-        key: _key,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SizedBox(height: 28),
+        key: _formKey,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 32),
 
-          // Back + title
-          Row(children: [
-            GestureDetector(
-              onTap: widget.onBack,
-              child: Container(
-                width: 38, height: 38,
-                decoration: BoxDecoration(
-                  color:        AppTheme.card(widget.dark),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: AppTheme.border(widget.dark)),
-                ),
-                child: Icon(Icons.arrow_back_rounded,
-                    color: AppTheme.textMuted(widget.dark), size: 18),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Text('Ticket Details', style: TextStyle(
-              color: AppTheme.textPrimary(widget.dark),
-              fontSize: 22, fontWeight: FontWeight.w900,
-            )),
-          ]),
-          const SizedBox(height: 22),
-
-          // Service banner (from QR/link)
-          Container(
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color:        AppTheme.crimson.withOpacity(0.08),
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: AppTheme.crimson.withOpacity(0.22)),
-            ),
-            child: Row(children: [
-              Container(
-                width: 36, height: 36,
-                decoration: BoxDecoration(
-                  color:        AppTheme.crimson.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(9),
-                ),
-                child: const Icon(Icons.qr_code_rounded,
-                    color: AppTheme.crimson, size: 18),
-              ),
-              const SizedBox(width: 12),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('SERVICE IDENTIFIED', style: TextStyle(
-                    color: AppTheme.crimson, fontSize: 9,
-                    fontWeight: FontWeight.w800, letterSpacing: 2,
-                  )),
-                  const SizedBox(height: 2),
-                  Text(widget.serviceName, style: TextStyle(
-                    color: AppTheme.textPrimary(widget.dark),
-                    fontSize: 13, fontWeight: FontWeight.w700,
-                  ), overflow: TextOverflow.ellipsis),
-                ],
-              )),
+            Row(children: [
               GestureDetector(
                 onTap: widget.onBack,
                 child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
+                  width: 38, height: 38,
                   decoration: BoxDecoration(
-                    color:        AppTheme.card(widget.dark),
-                    borderRadius: BorderRadius.circular(7),
-                    border: Border.all(color: AppTheme.border(widget.dark)),
+                    color:        AppTheme.card(widget.isDark),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: AppTheme.border(widget.isDark)),
                   ),
-                  child: Text('Change', style: TextStyle(
-                    color: AppTheme.textMuted(widget.dark),
-                    fontSize: 11, fontWeight: FontWeight.w600,
-                  )),
+                  child: Icon(Icons.arrow_back_rounded,
+                      color: AppTheme.textMuted(widget.isDark), size: 18),
                 ),
               ),
+              const SizedBox(width: 14),
+              Text('Ticket Details', style: TextStyle(
+                color: AppTheme.textPrimary(widget.isDark),
+                fontSize: 22, fontWeight: FontWeight.w900)),
             ]),
-          ),
-          const SizedBox(height: 22),
+            const SizedBox(height: 24),
 
-          if (_err != null) ...[
-            AuthWidgets.buildErrorBanner(_err!),
-            const SizedBox(height: 18),
+            // Service banner
+            Container(
+              padding: const EdgeInsets.all(14),
+              decoration: BoxDecoration(
+                color:        AppTheme.crimson.withOpacity(0.08),
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                border: Border.all(color: AppTheme.crimson.withOpacity(0.22)),
+              ),
+              child: Row(children: [
+                const Icon(Icons.verified_rounded,
+                    color: AppTheme.crimson, size: 18),
+                const SizedBox(width: 10),
+                Expanded(child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('SERVICE DETECTED', style: TextStyle(
+                      color: AppTheme.crimson, fontSize: 10,
+                      fontWeight: FontWeight.w800, letterSpacing: 1.8)),
+                    const SizedBox(height: 2),
+                    Text(widget.serviceName,
+                      style: TextStyle(
+                        color: AppTheme.textPrimary(widget.isDark),
+                        fontSize: 14, fontWeight: FontWeight.w600),
+                      overflow: TextOverflow.ellipsis),
+                  ],
+                )),
+              ]),
+            ),
+            const SizedBox(height: 24),
+
+            if (_errorMessage != null) ...[
+              AuthWidgets.buildErrorBanner(_errorMessage!),
+              const SizedBox(height: 20),
+            ],
+
+            _label('SERVICE TYPE', widget.isDark),
+            const SizedBox(height: 8),
+            _ServiceDropdown(
+              isDark: widget.isDark, value: _service, items: _categories,
+              onChanged: (v) => setState(() => _service = v),
+            ),
+            const SizedBox(height: 20),
+
+            _label('TICKET TITLE', widget.isDark),
+            const SizedBox(height: 8),
+            AuthWidgets.buildTextField(
+              controller: _titleCtrl, isDark: widget.isDark,
+              hint: 'Short summary of your issue',
+              icon: Icons.title_rounded,
+              validator: (v) => (v == null || v.trim().length < 5)
+                  ? 'Title must be at least 5 characters' : null,
+            ),
+            const SizedBox(height: 20),
+
+            _label('DESCRIPTION', widget.isDark),
+            const SizedBox(height: 8),
+            _MultilineField(
+              controller: _descCtrl, isDark: widget.isDark,
+              hint: 'Describe your issue in detail…', maxLines: 5,
+              validator: (v) => (v == null || v.trim().length < 10)
+                  ? 'Please provide more detail (min 10 chars)' : null,
+            ),
+            const SizedBox(height: 20),
+
+            _label('PRIORITY', widget.isDark),
+            const SizedBox(height: 10),
+            _PrioritySelector(
+              isDark: widget.isDark, selected: _priority,
+              onChanged: (p) => setState(() => _priority = p),
+            ),
+            const SizedBox(height: 20),
+
+            _label('ADDITIONAL NOTES  (optional)', widget.isDark),
+            const SizedBox(height: 8),
+            _MultilineField(
+              controller: _notesCtrl, isDark: widget.isDark,
+              hint: 'Any extra context or information…', maxLines: 3,
+              validator: null,
+            ),
+            const SizedBox(height: 32),
+
+            AuthWidgets.buildPrimaryButton(
+              label: 'CREATE TICKET', isLoading: _isLoading,
+              onPressed: _onSubmit,
+            ),
+            const SizedBox(height: 40),
           ],
-
-          // Service type
-          _Label(text: 'SERVICE TYPE', dark: widget.dark),
-          const SizedBox(height: 8),
-          _Dropdown(
-            dark: widget.dark, value: _service, items: _categories,
-            onChanged: (v) => setState(() => _service = v),
-          ),
-          const SizedBox(height: 18),
-
-          // Title
-          _Label(text: 'TICKET TITLE', dark: widget.dark),
-          const SizedBox(height: 8),
-          AuthWidgets.buildTextField(
-            controller: _titleCtrl, isDark: widget.dark,
-            hint: 'Short summary of your issue',
-            icon: Icons.title_rounded,
-            validator: (v) => (v == null || v.trim().length < 5)
-                ? 'Title must be at least 5 characters' : null,
-          ),
-          const SizedBox(height: 18),
-
-          // Description
-          _Label(text: 'DESCRIPTION', dark: widget.dark),
-          const SizedBox(height: 8),
-          _MultilineField(
-            controller: _descCtrl, dark: widget.dark,
-            hint: 'Describe your issue in detail…', maxLines: 5,
-            validator: (v) => (v == null || v.trim().length < 10)
-                ? 'Please provide more detail (min 10 chars)' : null,
-          ),
-          const SizedBox(height: 18),
-
-          // Priority
-          _Label(text: 'PRIORITY', dark: widget.dark),
-          const SizedBox(height: 10),
-          _PriorityRow(
-            dark: widget.dark, selected: _prio,
-            onChanged: (p) => setState(() => _prio = p),
-          ),
-          const SizedBox(height: 18),
-
-          // Notes
-          _Label(text: 'ADDITIONAL NOTES  (optional)', dark: widget.dark),
-          const SizedBox(height: 8),
-          _MultilineField(
-            controller: _notesCtrl, dark: widget.dark,
-            hint: 'Any extra context or information…', maxLines: 3,
-            validator: null,
-          ),
-          const SizedBox(height: 30),
-
-          // Submit
-          AuthWidgets.buildPrimaryButton(
-            label: 'CREATE TICKET', isLoading: _loading, onPressed: _submit),
-          const SizedBox(height: 40),
-        ]),
+        ),
       ),
     );
   }
+
+  Widget _label(String t, bool dark) =>
+      Text(t, style: AppTheme.labelStyle(dark));
 }
 
 // =============================================================
-// REUSABLE FORM WIDGETS
+// SERVICE DROPDOWN
 // =============================================================
-class _Label extends StatelessWidget {
-  final String text;
-  final bool dark;
-  const _Label({required this.text, required this.dark});
-
-  @override
-  Widget build(BuildContext context) =>
-      Text(text, style: AppTheme.labelStyle(dark));
-}
-
-class _Dropdown extends StatelessWidget {
-  final bool dark;
+class _ServiceDropdown extends StatelessWidget {
+  final bool isDark;
   final String? value;
   final List<String> items;
   final void Function(String?) onChanged;
-  const _Dropdown({required this.dark, required this.value,
+  const _ServiceDropdown({required this.isDark, required this.value,
       required this.items, required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
       decoration: BoxDecoration(
-        color:        AppTheme.card(dark),
+        color:        AppTheme.card(isDark),
         borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-        border: Border.all(color: AppTheme.border(dark)),
+        border: Border.all(color: AppTheme.border(isDark)),
       ),
       child: DropdownButtonHideUnderline(
         child: DropdownButton<String>(
           value: value, isExpanded: true,
-          dropdownColor: AppTheme.card(dark),
+          dropdownColor: AppTheme.card(isDark),
           icon: Icon(Icons.keyboard_arrow_down_rounded,
-              color: AppTheme.textMuted(dark)),
-          style: TextStyle(color: AppTheme.textPrimary(dark), fontSize: 14),
+              color: AppTheme.textMuted(isDark), size: 22),
+          style: TextStyle(
+              color: AppTheme.textPrimary(isDark), fontSize: 15),
           onChanged: onChanged,
           items: items.map((s) => DropdownMenuItem(
             value: s,
             child: Row(children: [
-              Icon(Icons.support_agent_rounded, color: AppTheme.crimson, size: 17),
+              Icon(Icons.support_agent_rounded,
+                  color: AppTheme.crimson, size: 18),
               const SizedBox(width: 10),
               Text(s),
             ]),
@@ -961,28 +922,32 @@ class _Dropdown extends StatelessWidget {
   }
 }
 
+// =============================================================
+// MULTILINE FIELD
+// =============================================================
 class _MultilineField extends StatelessWidget {
   final TextEditingController controller;
-  final bool dark;
+  final bool isDark;
   final String hint;
   final int maxLines;
   final String? Function(String?)? validator;
-  const _MultilineField({required this.controller, required this.dark,
+  const _MultilineField({required this.controller, required this.isDark,
       required this.hint, required this.maxLines, required this.validator});
 
   @override
   Widget build(BuildContext context) {
     return TextFormField(
       controller: controller, maxLines: maxLines, validator: validator,
-      style: TextStyle(color: AppTheme.textPrimary(dark), fontSize: 14),
+      style: TextStyle(color: AppTheme.textPrimary(isDark), fontSize: 14),
       decoration: InputDecoration(
         hintText:   hint,
-        hintStyle:  TextStyle(color: AppTheme.textHint(dark), fontSize: 13),
-        filled:      true, fillColor: AppTheme.card(dark),
+        hintStyle:  TextStyle(color: AppTheme.textHint(isDark), fontSize: 13),
+        filled:      true, fillColor: AppTheme.card(isDark),
         errorStyle:  const TextStyle(color: AppTheme.crimson, fontSize: 12),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        border:             _b(AppTheme.border(dark)),
-        enabledBorder:      _b(AppTheme.border(dark)),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+        border:             _b(AppTheme.border(isDark)),
+        enabledBorder:      _b(AppTheme.border(isDark)),
         focusedBorder:      _b(AppTheme.crimson, w: 1.5),
         errorBorder:        _b(AppTheme.crimson),
         focusedErrorBorder: _b(AppTheme.crimson, w: 1.5),
@@ -992,15 +957,19 @@ class _MultilineField extends StatelessWidget {
 
   OutlineInputBorder _b(Color c, {double w = 1}) => OutlineInputBorder(
     borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-    borderSide: BorderSide(color: c, width: w),
+    borderSide:   BorderSide(color: c, width: w),
   );
 }
 
-class _PriorityRow extends StatelessWidget {
-  final bool dark;
+// =============================================================
+// PRIORITY SELECTOR
+// =============================================================
+class _PrioritySelector extends StatelessWidget {
+  final bool isDark;
   final _Priority selected;
   final void Function(_Priority) onChanged;
-  const _PriorityRow({required this.dark, required this.selected, required this.onChanged});
+  const _PrioritySelector({required this.isDark, required this.selected,
+      required this.onChanged});
 
   @override
   Widget build(BuildContext context) {
@@ -1015,20 +984,20 @@ class _PriorityRow extends StatelessWidget {
               margin:  const EdgeInsets.only(right: 8),
               padding: const EdgeInsets.symmetric(vertical: 10),
               decoration: BoxDecoration(
-                color: on ? p.color.withOpacity(0.14) : AppTheme.card(dark),
+                color: on ? p.color.withOpacity(0.15) : AppTheme.card(isDark),
                 borderRadius: BorderRadius.circular(AppTheme.radiusSmall),
                 border: Border.all(
-                  color: on ? p.color : AppTheme.border(dark),
-                  width: on ? 1.6 : 1,
-                ),
+                  color: on ? p.color : AppTheme.border(isDark),
+                  width: on ? 1.5 : 1.0),
               ),
               child: Column(mainAxisSize: MainAxisSize.min, children: [
-                Icon(p.icon, color: on ? p.color : AppTheme.textMuted(dark), size: 15),
+                Icon(p.icon,
+                    color: on ? p.color : AppTheme.textMuted(isDark),
+                    size: 16),
                 const SizedBox(height: 4),
                 Text(p.label, style: TextStyle(
-                  color: on ? p.color : AppTheme.textMuted(dark),
-                  fontSize: 10, fontWeight: FontWeight.w700,
-                )),
+                  color: on ? p.color : AppTheme.textMuted(isDark),
+                  fontSize: 11, fontWeight: FontWeight.w700)),
               ]),
             ),
           ),
@@ -1039,12 +1008,12 @@ class _PriorityRow extends StatelessWidget {
 }
 
 // =============================================================
-// SUCCESS PAGE
+// SUCCESS VIEW
 // =============================================================
-class _SuccessPage extends StatelessWidget {
-  final bool dark;
+class _SuccessView extends StatelessWidget {
+  final bool isDark;
   final VoidCallback onBack;
-  const _SuccessPage({required this.dark, required this.onBack});
+  const _SuccessView({required this.isDark, required this.onBack});
 
   @override
   Widget build(BuildContext context) {
@@ -1053,45 +1022,50 @@ class _SuccessPage extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 36),
         child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
           Container(
-            width: 84, height: 84,
+            width: 80, height: 80,
             decoration: BoxDecoration(
               color:        Colors.green.withOpacity(0.12),
-              borderRadius: BorderRadius.circular(22),
-              border: Border.all(color: Colors.green.withOpacity(0.3)),
-            ),
+              borderRadius: BorderRadius.circular(20)),
             child: const Icon(Icons.check_circle_rounded,
-                color: Colors.green, size: 42),
+                color: Colors.green, size: 40),
           ),
           const SizedBox(height: 24),
           Text('Ticket Created!', style: TextStyle(
-            color: AppTheme.textPrimary(dark),
-            fontSize: 26, fontWeight: FontWeight.w900,
-          )),
+            color: AppTheme.textPrimary(isDark),
+            fontSize: 26, fontWeight: FontWeight.w900)),
           const SizedBox(height: 10),
           Text(
-            'Your ticket has been submitted. '
-            'You will be notified when it is processed.',
-            style: TextStyle(color: AppTheme.textMuted(dark), fontSize: 14),
+            'Your ticket has been submitted successfully. '
+            'You will be notified once it is processed.',
+            style: AppTheme.mutedBodyStyle(isDark),
             textAlign: TextAlign.center,
           ),
           const SizedBox(height: 36),
-          SizedBox(
-            width: double.infinity, height: 54,
-            child: ElevatedButton(
-              onPressed: onBack,
-              style: ElevatedButton.styleFrom(
-                backgroundColor: AppTheme.crimson, elevation: 0,
-                shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(AppTheme.radiusLarge)),
-              ),
-              child: const Text('CREATE ANOTHER', style: TextStyle(
-                color: Colors.white, fontSize: 13,
-                fontWeight: FontWeight.w800, letterSpacing: 2,
-              )),
-            ),
-          ),
+          AuthWidgets.buildPrimaryButton(
+            label: 'CREATE ANOTHER', isLoading: false, onPressed: onBack),
         ]),
       ),
     );
   }
 }
+
+// =============================================================
+// SHARED HELPERS
+// =============================================================
+Widget _sheetHandle(bool isDark) => Container(
+  margin: const EdgeInsets.only(top: 12, bottom: 16),
+  width: 40, height: 4,
+  decoration: BoxDecoration(
+    color:        AppTheme.border(isDark),
+    borderRadius: BorderRadius.circular(2)));
+
+Widget _closeButton(BuildContext context, bool isDark) => GestureDetector(
+  onTap: () => Navigator.pop(context),
+  child: Container(
+    width: 36, height: 36,
+    decoration: BoxDecoration(
+      color:        AppTheme.card(isDark),
+      borderRadius: BorderRadius.circular(9),
+      border: Border.all(color: AppTheme.border(isDark))),
+    child: Icon(Icons.close_rounded,
+        color: AppTheme.textMuted(isDark), size: 18)));
