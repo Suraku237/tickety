@@ -10,22 +10,16 @@ import 'utils/app_theme.dart';
 // =============================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-
-  // Load persisted theme before app renders
   await ThemeProvider().loadTheme();
-
-  runApp(const QLineApp());
+  runApp(const TicketyApp());               // FIX: was QLineApp
 }
 
 // =============================================================
-// QLINE APP
-// Responsibilities:
-//   - Listen to ThemeProvider and rebuild when theme changes
-//   - Supply correct ThemeData to MaterialApp
-// OOP Principle: Observer Pattern (AnimatedBuilder on ChangeNotifier)
+// TICKETY APP
+// FIX: renamed from QLineApp → TicketyApp
 // =============================================================
-class QLineApp extends StatelessWidget {
-  const QLineApp({super.key});
+class TicketyApp extends StatelessWidget {
+  const TicketyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -48,8 +42,7 @@ class QLineApp extends StatelessWidget {
 
 // =============================================================
 // SPLASH ROUTER
-// Responsibilities:
-//   - Check session on startup and route accordingly
+// FIX: animated logo with fade-in + scale instead of bare icon
 // =============================================================
 class SplashRouter extends StatefulWidget {
   const SplashRouter({super.key});
@@ -58,52 +51,125 @@ class SplashRouter extends StatefulWidget {
   State<SplashRouter> createState() => _SplashRouterState();
 }
 
-class _SplashRouterState extends State<SplashRouter> {
+class _SplashRouterState extends State<SplashRouter>
+    with SingleTickerProviderStateMixin {
 
-  final _sessionService = SessionService();
+  final _session = SessionService();
+
+  late AnimationController _ctrl;
+  late Animation<double>   _fadeAnim;
+  late Animation<double>   _scaleAnim;
 
   @override
   void initState() {
     super.initState();
+    _ctrl = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 800));
+
+    _fadeAnim  = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
+    _scaleAnim = Tween<double>(begin: 0.80, end: 1.0).animate(
+        CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
+
+    _ctrl.forward();
     _resolveRoute();
   }
 
+  @override
+  void dispose() {
+    _ctrl.dispose();
+    super.dispose();
+  }
+
   Future<void> _resolveRoute() async {
-    final sessionData = await _sessionService.restore();
+    // Give the splash animation time to breathe
+    await Future.delayed(const Duration(milliseconds: 1400));
+    if (!mounted) return;
+
+    // FIX: restore() now also re-injects the token into ApiService
+    final sessionData = await _session.restore();
     if (!mounted) return;
 
     if (sessionData != null) {
-      Navigator.pushReplacement(context, MaterialPageRoute(
-        builder: (_) => HomePage(user: AuthUser.fromMap(sessionData)),
+      Navigator.pushReplacement(context, _fadeRoute(
+        HomePage(user: AuthUser.fromMap(sessionData)),
       ));
     } else {
-      Navigator.pushReplacement(context, MaterialPageRoute(
-        builder: (_) => const LoginPage(),
+      Navigator.pushReplacement(context, _fadeRoute(
+        const LoginPage(),
       ));
     }
+  }
+
+  PageRouteBuilder _fadeRoute(Widget page) {
+    return PageRouteBuilder(
+      pageBuilder:      (_, __, ___) => page,
+      transitionDuration: const Duration(milliseconds: 400),
+      transitionsBuilder: (_, anim, __, child) =>
+          FadeTransition(opacity: anim, child: child),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     final isDark = ThemeProvider().isDarkMode;
+
     return Scaffold(
       backgroundColor: AppTheme.surface(isDark),
       body: Center(
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              width: 60, height: 60,
-              decoration: BoxDecoration(
-                color:        AppTheme.crimson,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: const Icon(Icons.confirmation_num_rounded,
-                  color: Colors.white, size: 30),
+        child: FadeTransition(
+          opacity: _fadeAnim,
+          child: ScaleTransition(
+            scale: _scaleAnim,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Logo container
+                Container(
+                  width: 80, height: 80,
+                  decoration: BoxDecoration(
+                    color:        AppTheme.crimson,
+                    borderRadius: BorderRadius.circular(22),
+                    boxShadow: [
+                      BoxShadow(
+                        color:      AppTheme.crimson.withOpacity(0.4),
+                        blurRadius: 28,
+                        offset:     const Offset(0, 10),
+                      ),
+                    ],
+                  ),
+                  child: const Icon(Icons.confirmation_num_rounded,
+                      color: Colors.white, size: 40),
+                ),
+                const SizedBox(height: 20),
+
+                // Brand name
+                Text('TICKETY', style: TextStyle(
+                  color:      AppTheme.textPrimary(isDark),
+                  fontSize:   26,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 6,
+                )),
+                const SizedBox(height: 8),
+
+                // Tagline
+                Text('Smart Queue Management', style: TextStyle(
+                  color:    AppTheme.textMuted(isDark),
+                  fontSize: 13,
+                  letterSpacing: 1,
+                )),
+                const SizedBox(height: 48),
+
+                // Loading indicator
+                SizedBox(
+                  width: 24, height: 24,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    color:       AppTheme.crimson.withOpacity(0.7),
+                  ),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
-            Text('TICKETY', style: AppTheme.brandStyle(isDark)),
-          ],
+          ),
         ),
       ),
     );
