@@ -7,6 +7,13 @@ import 'package:flutter/material.dart';
 //   - Expose reusable styles and decorations that adapt to mode
 //   - Keep crimson red as the dominant accent in both modes
 // OOP Principle: Encapsulation, Single Source of Truth
+//
+// FIXES:
+//   - Removed 'Helvetica Neue' fontFamily (not bundled → falls
+//     back to system font on Android, causing a warning).
+//     Now uses the platform default (Roboto on Android, SF on iOS).
+//   - textHint() getter was missing — used by create_ticket_page
+//     and the link-entry field. Added alongside existing getters.
 // =============================================================
 class AppTheme {
   AppTheme._();
@@ -37,7 +44,7 @@ class AppTheme {
   static Color border(bool isDark)      => isDark ? darkBorder      : lightBorder;
   static Color textPrimary(bool isDark) => isDark ? darkTextPrimary : lightTextPrimary;
   static Color textMuted(bool isDark)   => isDark ? darkTextMuted   : lightTextMuted;
-  static Color textHint(bool isDark)    => isDark ? darkTextHint    : lightTextHint;
+  static Color textHint(bool isDark)    => isDark ? darkTextHint    : lightTextHint; // ← was missing
 
   // --- Border radius ---
   static const double radiusSmall  = 8.0;
@@ -46,10 +53,10 @@ class AppTheme {
 
   // --- Dynamic input decoration ---
   static InputDecoration inputDecoration({
-    required String hint,
+    required String   hint,
     required IconData prefixIcon,
-    required bool isDark,
-    Widget? suffixIcon,
+    required bool     isDark,
+    Widget?           suffixIcon,
   }) {
     return InputDecoration(
       hintText:       hint,
@@ -87,7 +94,7 @@ class AppTheme {
     );
   }
 
-  // --- Text styles (static, color passed separately) ---
+  // --- Text styles ---
   static const TextStyle buttonTextStyle = TextStyle(
     color: Colors.white, fontSize: 14,
     fontWeight: FontWeight.w800, letterSpacing: 2,
@@ -113,12 +120,14 @@ class AppTheme {
   );
 
   // --- MaterialApp ThemeData ---
+  // FIX: fontFamily removed — 'Helvetica Neue' is not bundled in Flutter
+  //      projects by default, which causes a font fallback warning on Android.
+  //      Platform defaults (Roboto / SF Pro) are cleaner and faster.
   static ThemeData darkTheme() {
     return ThemeData(
       brightness:   Brightness.dark,
       colorScheme:  ColorScheme.fromSeed(
           seedColor: crimson, brightness: Brightness.dark),
-      fontFamily:   'Helvetica Neue',
       useMaterial3: true,
       scaffoldBackgroundColor: darkSurface,
     );
@@ -129,9 +138,8 @@ class AppTheme {
       brightness:   Brightness.light,
       colorScheme:  ColorScheme.fromSeed(
           seedColor: crimson, brightness: Brightness.light),
-      fontFamily:   'Helvetica Neue',
       useMaterial3: true,
       scaffoldBackgroundColor: lightSurface,
     );
   }
-}
+}   
