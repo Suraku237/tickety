@@ -1,11 +1,7 @@
 import 'package:flutter/material.dart';
+
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
-import 'home_page.dart';
-import 'settings/profile_edit_page.dart';
-import 'settings/notification_settings_page.dart';
-import 'settings/security_settings_page.dart';
-import 'settings/about_page.dart';
 
 // =============================================================
 // SETTINGS PAGE
