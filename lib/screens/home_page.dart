@@ -4,7 +4,7 @@ import '../services/api_service.dart';
 import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
-import 'create_ticket_page.dart';
+import 'create_tickets_page.dart';
 
 // =============================================================
 // AUTH USER  (DTO — shared across all pages)
