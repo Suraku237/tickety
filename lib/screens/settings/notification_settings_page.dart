@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../utils/app_theme.dart';
+import '../../../utils/app_theme.dart';
 
 // =============================================================
 // NOTIFICATION SETTINGS PAGE

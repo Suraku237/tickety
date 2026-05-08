@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../utils/app_theme.dart';
-import '../../models/auth_user.dart'; // adjust to your actual import
+import '../../../utils/app_theme.dart';
+import '../../../models/auth_user.dart'; // adjust to your actual import
 
 // =============================================================
 // PROFILE EDIT PAGE
