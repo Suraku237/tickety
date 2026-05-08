@@ -1,493 +1,408 @@
+// settings_page.dart
 import 'package:flutter/material.dart';
-
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
+import 'home_page.dart';
 
-// =============================================================
+// =====================================================
+// SETTINGS ITEM MODEL (OOP)
+// =====================================================
+class SettingItem {
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  SettingItem({
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.color,
+    required this.onTap,
+  });
+}
+
+// =====================================================
 // SETTINGS PAGE
-// =============================================================
-class SettingsPage extends StatefulWidget {
+// =====================================================
+class SettingsPage extends StatelessWidget {
   final AuthUser user;
   final VoidCallback onLogout;
-  const SettingsPage({super.key, required this.user, required this.onLogout});
+
+  const SettingsPage({
+    super.key,
+    required this.user,
+    required this.onLogout,
+  });
+
+  bool get dark => ThemeProvider().isDarkMode;
 
   @override
-  State<SettingsPage> createState() => _SettingsPageState();
-}
+  Widget build(BuildContext context) {
 
-class _SettingsPageState extends State<SettingsPage> {
-  bool get _dark => ThemeProvider().isDarkMode;
+    final items = [
 
-  @override
-  void initState() {
-    super.initState();
-    ThemeProvider().addListener(_rebuild);
-  }
+      SettingItem(
+        title: 'About Us',
+        subtitle: 'Learn more about TICKETY',
+        icon: Icons.info_outline_rounded,
+        color: Colors.blue,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const AboutPage(),
+            ),
+          );
+        },
+      ),
 
-  void _rebuild() {
-    if (mounted) setState(() {});
-  }
+      SettingItem(
+        title: 'Privacy Policy',
+        subtitle: 'Read our privacy policy',
+        icon: Icons.privacy_tip_outlined,
+        color: Colors.purple,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ExtensionPage(
+                title: 'Privacy Policy',
+              ),
+            ),
+          );
+        },
+      ),
 
-  @override
-  void dispose() {
-    ThemeProvider().removeListener(_rebuild);
-    super.dispose();
-  }
+      SettingItem(
+        title: 'Terms & Conditions',
+        subtitle: 'Application terms',
+        icon: Icons.article_outlined,
+        color: Colors.orange,
+        onTap: () {
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ExtensionPage(
+                title: 'Terms & Conditions',
+              ),
+            ),
+          );
+        },
+      ),
 
-  String _initials() {
-    if (widget.user.username.isEmpty) return '?';
-    final p = widget.user.username.trim().split(' ');
-    return p.length >= 2
-        ? '${p[0][0]}${p[1][0]}'.toUpperCase()
-        : widget.user.username[0].toUpperCase();
-  }
+      SettingItem(
+        title: 'Logout',
+        subtitle: 'Sign out of your account',
+        icon: Icons.logout_rounded,
+        color: AppTheme.crimson,
+        onTap: onLogout,
+      ),
+    ];
 
-  Future<void> _confirmLogout() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.card(_dark),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return Scaffold(
+      backgroundColor: AppTheme.surface(dark),
+
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: AppTheme.surface(dark),
         title: Text(
-          'Log out?',
+          'Settings',
           style: TextStyle(
-              color: AppTheme.textPrimary(_dark),
-              fontWeight: FontWeight.w800),
-        ),
-        content: Text(
-          'You will need to sign in again to access your tickets.',
-          style: TextStyle(color: AppTheme.textMuted(_dark)),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel',
-                style: TextStyle(color: AppTheme.textMuted(_dark))),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Log out',
-                style: TextStyle(
-                    color: AppTheme.crimson, fontWeight: FontWeight.w700)),
-          ),
-        ],
-      ),
-    );
-    if (ok == true) widget.onLogout();
-  }
-
-  void _navigate(Widget page) {
-    Navigator.push(context, MaterialPageRoute(builder: (_) => page));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Stack(children: [
-      // Decorative background accent
-      Positioned(
-        bottom: 0,
-        right: -60,
-        child: Container(
-          width: 200,
-          height: 200,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            gradient: RadialGradient(colors: [
-              AppTheme.crimson.withOpacity(0.07),
-              Colors.transparent,
-            ]),
+            color: AppTheme.textPrimary(dark),
+            fontWeight: FontWeight.bold,
           ),
         ),
       ),
 
-      SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.symmetric(horizontal: 22),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            const SizedBox(height: 24),
+      body: Column(
+        children: [
 
-            // ── Header ──────────────────────────────────────────
-            Text(
-              'Settings',
-              style: TextStyle(
-                color: AppTheme.textPrimary(_dark),
-                fontSize: 28,
-                fontWeight: FontWeight.w900,
-                letterSpacing: -0.5,
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // ── Profile Card ─────────────────────────────────────
-            _ProfileCard(
-              user: widget.user,
-              dark: _dark,
-              initials: _initials(),
-              onTap: () => _navigate(
-                ProfileEditPage(user: widget.user, dark: _dark),
-              ),
-            ),
-            const SizedBox(height: 28),
-
-            // ── Appearance ───────────────────────────────────────
-            _SectionLabel(label: 'APPEARANCE', dark: _dark),
-            const SizedBox(height: 10),
-            _SettingsCard(dark: _dark, children: [
-              _SwitchTile(
-                dark: _dark,
-                icon: _dark
-                    ? Icons.dark_mode_rounded
-                    : Icons.light_mode_rounded,
-                color: _dark ? const Color(0xFF7B61FF) : Colors.orange,
-                title: 'Dark Mode',
-                sub: _dark
-                    ? 'Currently using dark theme'
-                    : 'Currently using light theme',
-                value: _dark,
-                onChanged: (_) => ThemeProvider().toggleTheme(),
-              ),
-            ]),
-            const SizedBox(height: 20),
-
-            // ── Notifications ────────────────────────────────────
-            _SectionLabel(label: 'NOTIFICATIONS', dark: _dark),
-            const SizedBox(height: 10),
-            _SettingsCard(dark: _dark, children: [
-              _ActionTile(
-                dark: _dark,
-                icon: Icons.notifications_rounded,
-                color: Colors.orange,
-                title: 'Notifications',
-                sub: 'Manage push & email alerts',
-                onTap: () => _navigate(
-                  NotificationSettingsPage(dark: _dark),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 20),
-
-            // ── Security ─────────────────────────────────────────
-            _SectionLabel(label: 'SECURITY', dark: _dark),
-            const SizedBox(height: 10),
-            _SettingsCard(dark: _dark, children: [
-              _ActionTile(
-                dark: _dark,
-                icon: Icons.shield_rounded,
-                color: Colors.green,
-                title: 'Security',
-                sub: 'Password, biometrics & sessions',
-                onTap: () => _navigate(
-                  SecuritySettingsPage(dark: _dark),
-                ),
-              ),
-            ]),
-            const SizedBox(height: 20),
-
-            // ── About ────────────────────────────────────────────
-            _SectionLabel(label: 'ABOUT', dark: _dark),
-            const SizedBox(height: 10),
-            _SettingsCard(dark: _dark, children: [
-              _ActionTile(
-                dark: _dark,
-                icon: Icons.info_outline_rounded,
-                color: Colors.indigo,
-                title: 'About TICKETY',
-                sub: 'Version, privacy & terms',
-                onTap: () => _navigate(AboutPage(dark: _dark)),
-              ),
-            ]),
-            const SizedBox(height: 20),
-
-            // ── Account / Danger Zone ────────────────────────────
-            _SectionLabel(label: 'ACCOUNT', dark: _dark),
-            const SizedBox(height: 10),
-            _SettingsCard(dark: _dark, children: [
-              _ActionTile(
-                dark: _dark,
-                icon: Icons.logout_rounded,
-                color: AppTheme.crimson,
-                title: 'Log Out',
-                sub: 'Sign out of your account',
-                onTap: _confirmLogout,
-                titleColor: AppTheme.crimson,
-              ),
-            ]),
-            const SizedBox(height: 36),
-
-            // ── Footer ───────────────────────────────────────────
-            Center(
-              child: Text(
-                'TICKETY · Made with ❤️ · v1.0.0',
-                style: TextStyle(
-                  color: AppTheme.textMuted(_dark).withOpacity(0.4),
-                  fontSize: 11,
-                ),
-              ),
-            ),
-            const SizedBox(height: 24),
-          ]),
-        ),
-      ),
-    ]);
-  }
-}
-
-// =============================================================
-// PROFILE CARD  (tappable → opens ProfileEditPage)
-// =============================================================
-class _ProfileCard extends StatelessWidget {
-  final AuthUser user;
-  final bool dark;
-  final String initials;
-  final VoidCallback onTap;
-  const _ProfileCard(
-      {required this.user,
-      required this.dark,
-      required this.initials,
-      required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(20),
-        decoration: BoxDecoration(
-          gradient: LinearGradient(
-            colors: [AppTheme.crimson, AppTheme.darkCrimson],
-            begin: Alignment.topLeft,
-            end: Alignment.bottomRight,
-          ),
-          borderRadius: BorderRadius.circular(18),
-          boxShadow: [
-            BoxShadow(
-              color: AppTheme.crimson.withOpacity(0.28),
-              blurRadius: 20,
-              offset: const Offset(0, 8),
-            )
-          ],
-        ),
-        child: Row(children: [
-          // Avatar
+          // PROFILE CARD
           Container(
-            width: 60,
-            height: 60,
+            margin: const EdgeInsets.all(20),
+            padding: const EdgeInsets.all(20),
             decoration: BoxDecoration(
-              color: Colors.white.withOpacity(0.2),
-              shape: BoxShape.circle,
-              border: Border.all(
-                  color: Colors.white.withOpacity(0.4), width: 2),
-            ),
-            child: Center(
-              child: Text(
-                initials,
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 22,
-                  fontWeight: FontWeight.w900,
-                ),
+              gradient: LinearGradient(
+                colors: [
+                  AppTheme.crimson,
+                  AppTheme.darkCrimson,
+                ],
               ),
+              borderRadius: BorderRadius.circular(20),
             ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+            child: Row(
               children: [
-                Text(
-                  user.username.isNotEmpty ? user.username : 'User',
-                  style: const TextStyle(
-                    color: Colors.white,
-                    fontSize: 18,
-                    fontWeight: FontWeight.w800,
+
+                CircleAvatar(
+                  radius: 28,
+                  backgroundColor: Colors.white24,
+                  child: Text(
+                    user.username[0].toUpperCase(),
+                    style: const TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                      fontSize: 22,
+                    ),
                   ),
-                  overflow: TextOverflow.ellipsis,
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  user.email,
-                  style:
-                      TextStyle(color: Colors.white.withOpacity(0.75), fontSize: 13),
-                  overflow: TextOverflow.ellipsis,
+
+                const SizedBox(width: 15),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      Text(
+                        user.username,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+
+                      const SizedBox(height: 4),
+
+                      Text(
+                        user.email,
+                        style: const TextStyle(
+                          color: Colors.white70,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
               ],
             ),
           ),
-          // Edit hint
-          Icon(Icons.edit_rounded, color: Colors.white.withOpacity(0.7), size: 18),
-        ]),
+
+          // DARK MODE
+          SwitchListTile(
+            value: dark,
+            activeColor: AppTheme.crimson,
+            onChanged: (_) {
+              ThemeProvider().toggleTheme();
+            },
+            title: Text(
+              'Dark Mode',
+              style: TextStyle(
+                color: AppTheme.textPrimary(dark),
+              ),
+            ),
+            secondary: Icon(
+              dark
+                  ? Icons.dark_mode
+                  : Icons.light_mode,
+              color: AppTheme.crimson,
+            ),
+          ),
+
+          const SizedBox(height: 10),
+
+          // SETTINGS LIST
+          Expanded(
+            child: ListView.builder(
+              itemCount: items.length,
+              itemBuilder: (_, index) {
+
+                final item = items[index];
+
+                return SettingTile(item: item);
+              },
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-// =============================================================
-// SHARED WIDGETS  (used here and exported for sub-pages)
-// =============================================================
+// =====================================================
+// REUSABLE TILE
+// =====================================================
+class SettingTile extends StatelessWidget {
 
-class _SettingsCard extends StatelessWidget {
-  final bool dark;
-  final List<Widget> children;
-  const _SettingsCard({required this.dark, required this.children});
+  final SettingItem item;
+
+  const SettingTile({
+    super.key,
+    required this.item,
+  });
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color: AppTheme.card(dark),
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.border(dark)),
+
+    final dark = ThemeProvider().isDarkMode;
+
+    return ListTile(
+
+      onTap: item.onTap,
+
+      leading: Container(
+        padding: const EdgeInsets.all(10),
+        decoration: BoxDecoration(
+          color: item.color.withOpacity(0.1),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Icon(
+          item.icon,
+          color: item.color,
+        ),
       ),
-      child: Column(children: children),
-    );
-  }
-}
 
-class _SectionLabel extends StatelessWidget {
-  final String label;
-  final bool dark;
-  const _SectionLabel({required this.label, required this.dark});
+      title: Text(
+        item.title,
+        style: TextStyle(
+          color: AppTheme.textPrimary(dark),
+          fontWeight: FontWeight.w600,
+        ),
+      ),
 
-  @override
-  Widget build(BuildContext context) => Text(
-        label,
+      subtitle: Text(
+        item.subtitle,
         style: TextStyle(
           color: AppTheme.textMuted(dark),
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 2,
         ),
-      );
-}
+      ),
 
-class _SwitchTile extends StatelessWidget {
-  final bool dark;
-  final IconData icon;
-  final Color color;
-  final String title, sub;
-  final bool value;
-  final void Function(bool) onChanged;
-  const _SwitchTile(
-      {required this.dark,
-      required this.icon,
-      required this.color,
-      required this.title,
-      required this.sub,
-      required this.value,
-      required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(children: [
-        _IconBadge(icon: icon, color: color),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(title,
-                style: TextStyle(
-                    color: AppTheme.textPrimary(dark),
-                    fontSize: 14,
-                    fontWeight: FontWeight.w700)),
-            const SizedBox(height: 2),
-            Text(sub,
-                style:
-                    TextStyle(color: AppTheme.textMuted(dark), fontSize: 12)),
-          ]),
-        ),
-        Switch(
-          value: value,
-          onChanged: onChanged,
-          activeColor: AppTheme.crimson,
-          activeTrackColor: AppTheme.crimson.withOpacity(0.3),
-          inactiveThumbColor: AppTheme.textMuted(dark),
-          inactiveTrackColor: AppTheme.border(dark),
-        ),
-      ]),
-    );
-  }
-}
-
-class _ActionTile extends StatelessWidget {
-  final bool dark;
-  final IconData icon;
-  final Color color;
-  final String title, sub;
-  final VoidCallback onTap;
-  final Widget? trailing;
-  final Color? titleColor;
-  const _ActionTile(
-      {required this.dark,
-      required this.icon,
-      required this.color,
-      required this.title,
-      required this.sub,
-      required this.onTap,
-      this.trailing,
-      this.titleColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(children: [
-          _IconBadge(icon: icon, color: color),
-          const SizedBox(width: 14),
-          Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(title,
-                  style: TextStyle(
-                      color: titleColor ?? AppTheme.textPrimary(dark),
-                      fontSize: 14,
-                      fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              Text(sub,
-                  style: TextStyle(
-                      color: AppTheme.textMuted(dark), fontSize: 12)),
-            ]),
-          ),
-          trailing ??
-              Icon(Icons.chevron_right_rounded,
-                  color: AppTheme.textMuted(dark), size: 20),
-        ]),
+      trailing: Icon(
+        Icons.chevron_right_rounded,
+        color: AppTheme.textMuted(dark),
       ),
     );
   }
 }
 
-/// Reusable coloured icon container
-class _IconBadge extends StatelessWidget {
-  final IconData icon;
-  final Color color;
-  const _IconBadge({required this.icon, required this.color});
+// =====================================================
+// ABOUT PAGE
+// =====================================================
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
 
   @override
-  Widget build(BuildContext context) => Container(
-        width: 36,
-        height: 36,
-        decoration: BoxDecoration(
-          color: color.withOpacity(0.12),
-          borderRadius: BorderRadius.circular(9),
+  Widget build(BuildContext context) {
+
+    final dark = ThemeProvider().isDarkMode;
+
+    return Scaffold(
+      backgroundColor: AppTheme.surface(dark),
+
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: AppTheme.surface(dark),
+        title: Text(
+          'About Us',
+          style: TextStyle(
+            color: AppTheme.textPrimary(dark),
+          ),
         ),
-        child: Icon(icon, color: color, size: 18),
-      );
+      ),
+
+      body: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          children: [
+
+            Container(
+              width: 90,
+              height: 90,
+              decoration: BoxDecoration(
+                color: AppTheme.crimson,
+                borderRadius: BorderRadius.circular(20),
+              ),
+              child: const Icon(
+                Icons.confirmation_num_rounded,
+                color: Colors.white,
+                size: 40,
+              ),
+            ),
+
+            const SizedBox(height: 25),
+
+            Text(
+              'TICKETY',
+              style: TextStyle(
+                color: AppTheme.textPrimary(dark),
+                fontSize: 28,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 3,
+              ),
+            ),
+
+            const SizedBox(height: 10),
+
+            Text(
+              'Smart Queue Management System',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.textMuted(dark),
+                fontSize: 14,
+              ),
+            ),
+
+            const SizedBox(height: 30),
+
+            Text(
+              'TICKETY helps users manage service queues and digital tickets easily with a modern interface.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                color: AppTheme.textPrimary(dark),
+                height: 1.6,
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
-class SettingsDivider extends StatelessWidget {
-  final bool dark;
-  const SettingsDivider({super.key, required this.dark});
+// =====================================================
+// EXTENSION PAGE TEMPLATE
+// Create future pages using this class
+// =====================================================
+class ExtensionPage extends StatelessWidget {
+
+  final String title;
+
+  const ExtensionPage({
+    super.key,
+    required this.title,
+  });
 
   @override
-  Widget build(BuildContext context) => Divider(
-        height: 1,
-        indent: 66,
-        endIndent: 0,
-        color: AppTheme.border(dark),
-      );
+  Widget build(BuildContext context) {
+
+    final dark = ThemeProvider().isDarkMode;
+
+    return Scaffold(
+      backgroundColor: AppTheme.surface(dark),
+
+      appBar: AppBar(
+        elevation: 0,
+        backgroundColor: AppTheme.surface(dark),
+        title: Text(
+          title,
+          style: TextStyle(
+            color: AppTheme.textPrimary(dark),
+          ),
+        ),
+      ),
+
+      body: Center(
+        child: Text(
+          '$title Page',
+          style: TextStyle(
+            color: AppTheme.textPrimary(dark),
+            fontSize: 20,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+      ),
+    );
+  }
 }
