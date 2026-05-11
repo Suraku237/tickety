@@ -48,10 +48,12 @@ class _LoginPageState extends AuthPageState<LoginPage> {
     setState(() => _isLoading = false);
 
     if (data['success'] == true) {
+      // ── FIX: pass token so SessionService persists + injects it ──
       await _sessionService.save(
         userId:   data['user_id']  ?? '',
         username: data['username'] ?? '',
         email:    data['email']    ?? '',
+        token:    data['token'],                      // ← was missing
       );
       if (!mounted) return;
       Navigator.pushReplacement(context, MaterialPageRoute(
@@ -59,17 +61,17 @@ class _LoginPageState extends AuthPageState<LoginPage> {
       ));
     } else if (data['statusCode'] == 403) {
       final message = data['message'] ?? '';
-      if (message.contains('verify')) {
+      if (message.toLowerCase().contains('verify')) {
         Navigator.push(context, MaterialPageRoute(
           builder: (_) => VerificationPage(
             email: _emailCtrl.text.trim().toLowerCase()),
-            ));
-        } else {
-            setState(() => _errorMessage = message);
-        }
-    }else{
-            setState(()=> _errorMessage = data['message'] ?? 'login failed');
+        ));
+      } else {
+        setState(() => _errorMessage = message);
       }
+    } else {
+      setState(() => _errorMessage = data['message'] ?? 'Login failed. Please try again.');
+    }
   }
 
   @override
@@ -168,7 +170,30 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                     validator: (v) => (v == null || v.isEmpty)
                         ? 'Password is required' : null,
                   ),
-                  const SizedBox(height: 36),
+                  const SizedBox(height: 12),
+
+                  // ── Forgot password ──
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: GestureDetector(
+                      onTap: () {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: const Text('Password reset — coming soon'),
+                            behavior: SnackBarBehavior.floating,
+                            backgroundColor: AppTheme.card(isDark),
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                          ),
+                        );
+                      },
+                      child: Text('Forgot password?', style: TextStyle(
+                        color: AppTheme.crimson, fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                      )),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
 
                   AuthWidgets.buildPrimaryButton(
                     label: 'SIGN IN', isLoading: _isLoading,

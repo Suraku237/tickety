@@ -70,17 +70,23 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
   String get _otpCode => _digitControllers.map((c) => c.text).join();
 
   void _onDigitChanged(int index, String value) {
-    if (value.length == 1 && index < 5) _focusNodes[index + 1].requestFocus();
+    if (value.length == 1 && index < 5) {
+      _focusNodes[index + 1].requestFocus();
+    }
     if (_otpCode.length == 6) {
       FocusScope.of(context).unfocus();
       _onVerify();
     }
   }
 
-  void _onBackspace(int index) {
-    if (_digitControllers[index].text.isEmpty && index > 0) {
-      _digitControllers[index - 1].clear();
-      _focusNodes[index - 1].requestFocus();
+  // ── FIX: replaced deprecated RawKeyboardListener with KeyboardListener ──
+  void _onKeyEvent(int index, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.backspace) {
+      if (_digitControllers[index].text.isEmpty && index > 0) {
+        _digitControllers[index - 1].clear();
+        _focusNodes[index - 1].requestFocus();
+      }
     }
   }
 
@@ -94,7 +100,11 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
       setState(() => _errorMessage = 'Please enter the complete 6-digit code');
       return;
     }
-    setState(() { _isLoading = true; _errorMessage = null; _successMessage = null; });
+    setState(() {
+      _isLoading      = true;
+      _errorMessage   = null;
+      _successMessage = null;
+    });
 
     final data = await _apiService.verifyEmail(
         email: widget.email, code: _otpCode);
@@ -103,25 +113,50 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
     setState(() => _isLoading = false);
 
     if (data['success'] == true) {
-      setState(() => _successMessage = 'Email verified! Redirecting...');
-      final resolvedUsername =data['username'] ?? widget.username ?? widget.email.split('@')[0];
+      setState(() => _successMessage = 'Email verified! Redirecting…');
+
+      // ── FIX: read userId from response; fall back to empty string ──
+      final resolvedUserId   = data['user_id']  ?? '';
+      final resolvedUsername = data['username'] ?? widget.username
+          ?? widget.email.split('@')[0];
+
+      // ── FIX: pass token from verify response if present ──
       await _sessionService.save(
-          userId: '', username: resolvedUsername, email: widget.email);
+        userId:   resolvedUserId,
+        username: resolvedUsername,
+        email:    widget.email,
+        token:    data['token'],
+      );
+
       await Future.delayed(const Duration(seconds: 1));
       if (!mounted) return;
-      Navigator.pushAndRemoveUntil(context, MaterialPageRoute(
-        builder: (_) => HomePage(user: AuthUser(
-          userId: '', username: resolvedUsername, email: widget.email)),
-      ), (route) => false);
+
+      Navigator.pushAndRemoveUntil(
+        context,
+        MaterialPageRoute(
+          builder: (_) => HomePage(
+            user: AuthUser(
+              userId:   resolvedUserId,
+              username: resolvedUsername,
+              email:    widget.email,
+            ),
+          ),
+        ),
+        (route) => false,
+      );
     } else {
-      setState(() => _errorMessage = data['message'] ?? 'Invalid code');
+      setState(() => _errorMessage = data['message'] ?? 'Invalid code. Please try again.');
       _clearDigits();
     }
   }
 
   Future<void> _onResend() async {
     if (_resendCooldown > 0 || _isResending) return;
-    setState(() { _isResending = true; _errorMessage = null; _successMessage = null; });
+    setState(() {
+      _isResending    = true;
+      _errorMessage   = null;
+      _successMessage = null;
+    });
     final data = await _apiService.resendOtp(email: widget.email);
     if (!mounted) return;
     setState(() => _isResending = false);
@@ -130,7 +165,8 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
       _startCooldown(60);
       _clearDigits();
     } else {
-      setState(() => _errorMessage = data['message'] ?? 'Could not resend code');
+      setState(() =>
+          _errorMessage = data['message'] ?? 'Could not resend code. Try again.');
     }
   }
 
@@ -218,6 +254,7 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
                   const SizedBox(height: 20),
                 ],
 
+                // ── 6-digit OTP boxes ──
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: List.generate(6, _buildDigitBox),
@@ -236,16 +273,19 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
                   child: GestureDetector(
                     onTap: _resendCooldown == 0 ? _onResend : null,
                     child: _isResending
-                        ? const SizedBox(width: 18, height: 18,
+                        ? const SizedBox(
+                            width: 18, height: 18,
                             child: CircularProgressIndicator(
                                 strokeWidth: 2, color: AppTheme.crimson))
                         : RichText(text: TextSpan(
                             text: "Didn't receive a code? ",
                             style: TextStyle(
-                                color: AppTheme.textMuted(isDark), fontSize: 14),
+                                color: AppTheme.textMuted(isDark),
+                                fontSize: 14),
                             children: [TextSpan(
                               text: _resendCooldown > 0
-                                  ? 'Resend in ${_resendCooldown}s' : 'Resend',
+                                  ? 'Resend in ${_resendCooldown}s'
+                                  : 'Resend',
                               style: TextStyle(
                                 color: _resendCooldown > 0
                                     ? AppTheme.textMuted(isDark)
@@ -271,17 +311,13 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
     );
   }
 
+  // ── FIX: KeyboardListener instead of deprecated RawKeyboardListener ──
   Widget _buildDigitBox(int index) {
     return SizedBox(
       width: 48, height: 58,
-      child: RawKeyboardListener(
+      child: KeyboardListener(
         focusNode: FocusNode(),
-        onKey: (event) {
-          if (event is RawKeyDownEvent &&
-              event.logicalKey == LogicalKeyboardKey.backspace) {
-            _onBackspace(index);
-          }
-        },
+        onKeyEvent: (event) => _onKeyEvent(index, event),
         child: TextFormField(
           controller:      _digitControllers[index],
           focusNode:       _focusNodes[index],
