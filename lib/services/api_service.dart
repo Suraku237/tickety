@@ -3,36 +3,23 @@ import 'package:http/http.dart' as http;
 
 // =============================================================
 // API SERVICE  (Singleton)
-// Responsibilities:
-//   - Manage the single HTTP client instance
-//   - Provide typed methods for every backend endpoint
-//   - Send X-App-Source: mobile on every request so the backend
-//     automatically assigns the 'client' role
-//   - Persist and attach the auth token for protected routes
-//   - Isolate all network logic from UI pages
-// OOP Principle: Singleton, Encapsulation, Abstraction
 // =============================================================
 class ApiService {
-  // --- Singleton ---
   static final ApiService _instance = ApiService._internal();
   factory ApiService() => _instance;
   ApiService._internal();
 
-  // --- Configuration ---
   static const String _baseUrl = 'http://109.199.120.38:5000/api';
 
-  // Auth token set after a successful login — sent on protected calls
   String? _token;
   void setToken(String token) => _token = token;
   void clearToken()           => _token = null;
 
-  // Base headers (no auth)
   static const Map<String, String> _baseHeaders = {
     'Content-Type': 'application/json',
     'X-App-Source': 'mobile',
   };
 
-  // Headers that include the Bearer token when available
   Map<String, String> get _authHeaders => {
     ..._baseHeaders,
     if (_token != null) 'Authorization': 'Bearer $_token',
@@ -54,7 +41,6 @@ class ApiService {
 
   // ----------------------------------------------------------
   // AUTH — LOGIN
-  // Stores the returned token automatically if present.
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> login({
     required String email,
@@ -87,8 +73,31 @@ class ApiService {
       _post('/resend-otp', {'email': email});
 
   // ----------------------------------------------------------
+  // AUTH — FORGOT PASSWORD  (request reset OTP)
+  // POST /forgot-password  { email }
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> forgotPassword({
+    required String email,
+  }) =>
+      _post('/forgot-password', {'email': email});
+
+  // ----------------------------------------------------------
+  // AUTH — RESET PASSWORD  (submit OTP + new password)
+  // POST /reset-password  { email, code, new_password }
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) =>
+      _post('/reset-password', {
+        'email':        email,
+        'code':         code,
+        'new_password': newPassword,
+      });
+
+  // ----------------------------------------------------------
   // TICKETS — CREATE
-  // POST /tickets
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> createTicket({
     required String userId,
@@ -114,9 +123,7 @@ class ApiService {
       );
 
   // ----------------------------------------------------------
-  // TICKETS — GET ALL  (for the current user)
-  // GET /tickets?user_id=<userId>
-  // Optional filters: status, priority
+  // TICKETS — GET ALL
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> getTickets({
     required String userId,
@@ -131,7 +138,6 @@ class ApiService {
 
   // ----------------------------------------------------------
   // TICKETS — GET ONE
-  // GET /tickets/<ticketId>?user_id=<userId>
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> getTicket({
     required String ticketId,
@@ -142,7 +148,6 @@ class ApiService {
 
   // ----------------------------------------------------------
   // TICKETS — UPDATE STATUS
-  // PATCH /tickets/<ticketId>
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> updateTicketStatus({
     required String ticketId,
@@ -156,8 +161,7 @@ class ApiService {
       );
 
   // ----------------------------------------------------------
-  // TICKETS — UPDATE FULL  (title, description, notes, priority)
-  // PATCH /tickets/<ticketId>
+  // TICKETS — UPDATE FULL
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> updateTicket({
     required String ticketId,
@@ -167,6 +171,7 @@ class ApiService {
     String? notes,
     String? priority,
     String? status,
+    String? assignedTo,   // ← for ticket swap
   }) {
     final body = <String, dynamic>{'user_id': userId};
     if (title       != null) body['title']       = title;
@@ -174,12 +179,12 @@ class ApiService {
     if (notes       != null) body['notes']       = notes;
     if (priority    != null) body['priority']    = priority;
     if (status      != null) body['status']      = status;
+    if (assignedTo  != null) body['assigned_to'] = assignedTo;
     return _patch('/tickets/$ticketId', body, useAuth: true);
   }
 
   // ----------------------------------------------------------
   // TICKETS — DELETE
-  // DELETE /tickets/<ticketId>
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> deleteTicket({
     required String ticketId,
@@ -188,10 +193,9 @@ class ApiService {
       _delete('/tickets/$ticketId', {'user_id': userId}, useAuth: true);
 
   // ==========================================================
-  // PRIVATE: HTTP helpers
+  // PRIVATE HTTP helpers
   // ==========================================================
 
-  // Generic POST
   Future<Map<String, dynamic>> _post(
     String endpoint,
     Map<String, dynamic> body, {
@@ -213,7 +217,6 @@ class ApiService {
     }
   }
 
-  // Generic GET with optional query params
   Future<Map<String, dynamic>> _get(
     String endpoint, {
     Map<String, String>? queryParams,
@@ -232,7 +235,6 @@ class ApiService {
     }
   }
 
-  // Generic PATCH
   Future<Map<String, dynamic>> _patch(
     String endpoint,
     Map<String, dynamic> body, {
@@ -250,7 +252,6 @@ class ApiService {
     }
   }
 
-  // Generic DELETE
   Future<Map<String, dynamic>> _delete(
     String endpoint,
     Map<String, dynamic> body, {

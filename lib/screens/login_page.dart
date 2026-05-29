@@ -8,6 +8,7 @@ import 'auth_page.dart';
 import 'registration_page.dart';
 import 'verification_page.dart';
 import 'home_page.dart';
+import 'forgot_password_page.dart';
 
 class LoginPage extends AuthPage {
   const LoginPage({super.key});
@@ -176,17 +177,11 @@ class _LoginPageState extends AuthPageState<LoginPage> {
                   Align(
                     alignment: Alignment.centerRight,
                     child: GestureDetector(
-                      onTap: () {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: const Text('Password reset — coming soon'),
-                            behavior: SnackBarBehavior.floating,
-                            backgroundColor: AppTheme.card(isDark),
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(10)),
-                          ),
-                        );
-                      },
+                      onTap: () => Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => const ForgotPasswordPage()),
+                      ),
                       child: Text('Forgot password?', style: TextStyle(
                         color: AppTheme.crimson, fontSize: 13,
                         fontWeight: FontWeight.w600,

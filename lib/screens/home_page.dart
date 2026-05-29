@@ -5,6 +5,10 @@ import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
 import 'create_tickets_page.dart';
+import 'ticket_list_page.dart';
+import 'ticket_detail_page.dart';
+import 'about_us_page.dart';
+import '../models/ticket.dart';
 
 // =============================================================
 // AUTH USER  (DTO — shared across all pages)
@@ -343,7 +347,10 @@ class _DashboardPageState extends State<_DashboardPage> {
           _SectionHeader(
             title: 'Recent Tickets', dark: _dark,
             action: _total > 0 ? 'See all' : null,
-            onAction: () {},
+            onAction: () => Navigator.push(
+              context,
+              MaterialPageRoute(builder: (_) => TicketListPage(user: widget.user)),
+            ).then((_) => _load()),
           ),
           const SizedBox(height: 12),
           _loading
@@ -351,14 +358,19 @@ class _DashboardPageState extends State<_DashboardPage> {
               : _recent.isEmpty
                   ? _EmptyTickets(dark: _dark, onTap: widget.onCreateTap)
                   : Column(children: _recent
-                      .map((t) => _TicketRow(ticket: t, dark: _dark))
+                      .map((t) => _TicketRow(
+                            ticket: t,
+                            dark:   _dark,
+                            user:   widget.user,
+                            onRefresh: _load,
+                          ))
                       .toList()),
           const SizedBox(height: 26),
 
           // ── Quick actions ──
           _SectionHeader(title: 'Quick Actions', dark: _dark),
           const SizedBox(height: 12),
-          _QuickGrid(dark: _dark, onCreateTap: widget.onCreateTap),
+          _QuickGrid(dark: _dark, onCreateTap: widget.onCreateTap, user: widget.user),
 
           const SizedBox(height: 28),
           Center(child: Text('TICKETY v1.0  ·  Smart Queue Management',
@@ -661,8 +673,13 @@ class _SectionHeader extends StatelessWidget {
 // ── Recent ticket row ──
 class _TicketRow extends StatelessWidget {
   final Map<String, dynamic> ticket;
-  final bool dark;
-  const _TicketRow({required this.ticket, required this.dark});
+  final bool       dark;
+  final AuthUser   user;
+  final VoidCallback onRefresh;
+  const _TicketRow({
+    required this.ticket, required this.dark,
+    required this.user,   required this.onRefresh,
+  });
 
   Color _pc(String p) => switch (p.toLowerCase()) {
     'urgent' => AppTheme.crimson, 'high' => Colors.orange,
@@ -681,45 +698,60 @@ class _TicketRow extends StatelessWidget {
     final priority = ticket['priority'] ?? 'low';
     final service  = ticket['service']  ?? '';
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color:        AppTheme.card(dark),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.border(dark)),
-      ),
-      child: Row(children: [
-        Container(
-          width: 8, height: 44,
-          decoration: BoxDecoration(
-            color: _pc(priority), borderRadius: BorderRadius.circular(4)),
+    return GestureDetector(
+      onTap: () async {
+        final changed = await Navigator.push<bool>(
+          context,
+          MaterialPageRoute(builder: (_) => TicketDetailPage(
+            ticket: Ticket.fromMap(ticket),
+            user:   user,
+          )),
+        );
+        if (changed == true) onRefresh();
+      },
+      child: Container(
+        margin: const EdgeInsets.only(bottom: 10),
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color:        AppTheme.card(dark),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.border(dark)),
         ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(
-              color: AppTheme.textPrimary(dark),
-              fontSize: 14, fontWeight: FontWeight.w700),
-              overflow: TextOverflow.ellipsis),
-            if (service.isNotEmpty)
-              Text(service, style: TextStyle(
-                color: AppTheme.textMuted(dark), fontSize: 12)),
-          ],
-        )),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color:        _sc(status).withOpacity(0.12),
-            borderRadius: BorderRadius.circular(6),
+        child: Row(children: [
+          Container(
+            width: 8, height: 44,
+            decoration: BoxDecoration(
+              color: _pc(priority), borderRadius: BorderRadius.circular(4)),
           ),
-          child: Text(status[0].toUpperCase() + status.substring(1),
-            style: TextStyle(color: _sc(status), fontSize: 10,
-                fontWeight: FontWeight.w800)),
-        ),
-      ]),
+          const SizedBox(width: 12),
+          Expanded(child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(title, style: TextStyle(
+                color: AppTheme.textPrimary(dark),
+                fontSize: 14, fontWeight: FontWeight.w700),
+                overflow: TextOverflow.ellipsis),
+              if (service.isNotEmpty)
+                Text(service, style: TextStyle(
+                  color: AppTheme.textMuted(dark), fontSize: 12)),
+            ],
+          )),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color:        _sc(status).withOpacity(0.12),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(status[0].toUpperCase() + status.substring(1),
+              style: TextStyle(color: _sc(status), fontSize: 10,
+                  fontWeight: FontWeight.w800)),
+          ),
+          const SizedBox(width: 4),
+          Icon(Icons.chevron_right_rounded,
+              color: AppTheme.textMuted(dark), size: 16),
+        ]),
+      ),
     );
   }
 }
@@ -810,9 +842,10 @@ class _ErrorStrip extends StatelessWidget {
 
 // ── Quick actions grid ──
 class _QuickGrid extends StatelessWidget {
-  final bool dark;
+  final bool     dark;
+  final AuthUser user;
   final VoidCallback onCreateTap;
-  const _QuickGrid({required this.dark, required this.onCreateTap});
+  const _QuickGrid({required this.dark, required this.onCreateTap, required this.user});
 
   @override
   Widget build(BuildContext context) {
@@ -822,7 +855,9 @@ class _QuickGrid extends StatelessWidget {
       _QA(icon: Icons.link_rounded, label: 'Enter Link',
           color: Colors.blue,       onTap: onCreateTap),
       _QA(icon: Icons.history_rounded, label: 'History',
-          color: Colors.orange,     onTap: () {}),
+          color: Colors.orange,
+          onTap: () => Navigator.push(context,
+              MaterialPageRoute(builder: (_) => TicketListPage(user: user)))),
       _QA(icon: Icons.notifications_rounded, label: 'Alerts',
           color: Colors.purple,     onTap: () {}),
       _QA(icon: Icons.bar_chart_rounded, label: 'Analytics',
@@ -1133,6 +1168,14 @@ class _SettingsPageState extends State<_SettingsPage> {
         _SLabel(label: 'ABOUT', dark: _dark),
         const SizedBox(height: 10),
         _SCard(dark: _dark, children: [
+          _ActionRow(
+            dark: _dark, icon: Icons.group_rounded,
+            iconColor: AppTheme.crimson,
+            title: 'About Us', sub: 'Meet the team behind TICKETY',
+            onTap: () => Navigator.push(context,
+                MaterialPageRoute(builder: (_) => const AboutUsPage())),
+          ),
+          _SDivider(dark: _dark),
           _ActionRow(
             dark: _dark, icon: Icons.info_outline_rounded,
             iconColor: Colors.indigo,
