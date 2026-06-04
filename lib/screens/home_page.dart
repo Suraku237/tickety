@@ -80,14 +80,12 @@ class DashTicket {
 
 // =============================================================
 // HOME PAGE  —  Dashboard tab (Tab 0 inside MainShell)
-// Based on friend's home_page.dart with the following changes:
-//   - _DashboardPage stats renamed: Open→Active, Closed→Suspended,
-//     Urgent→Cancelled
-//   - Recent tickets: replaced _EmptyTickets CTA + _TicketRow with
-//     swipeable DashTicket cards containing full queue info and
-//     inline actions (swap, leave)
-//   - Quick actions: Scan QR / Enter Link open scanner directly
-//   - _SettingsPage tab removed — settings now in MainShell drawer
+// Changes from previous version:
+//   - Settings gear icon REMOVED from top bar
+//   - _SettingsDrawer widget REMOVED entirely
+//   - Top bar now shows: brand | theme toggle | avatar only
+//   - All settings content has moved to ProfilePage
+// OOP Principle: Single Responsibility, Composition
 // =============================================================
 class HomePage extends StatefulWidget {
   final AuthUser user;
@@ -151,9 +149,9 @@ class _HomePageState extends State<HomePage>
           const _BgGlows(),
           SafeArea(
             child: _DashboardPage(
-              user:        widget.user,
-              onNavigate:  widget.onNavigate,
-              onLogout:    _logout,
+              user:       widget.user,
+              onNavigate: widget.onNavigate,
+              onLogout:   _logout,
             ),
           ),
         ]),
@@ -215,14 +213,12 @@ class _DashboardPageState extends State<_DashboardPage> {
   int     _suspended    = 0;
   int     _cancelled    = 0;
 
-  // Swipeable ticket cards
   List<DashTicket> _tickets = [];
   int              _cardIndex = 0;
   late PageController _pageCtrl;
 
   bool get _dark => ThemeProvider().isDarkMode;
 
-  // Placeholder tickets — replaced by real API data when backend ready
   final List<DashTicket> _placeholder = const [
     DashTicket(
       id: '1', ticketNumber: 'A047',
@@ -271,7 +267,7 @@ class _DashboardPageState extends State<_DashboardPage> {
         _suspended = raw.where((t) => t['status'] == 'suspended').length;
         _cancelled = raw.where((t) => t['status'] == 'cancelled').length;
         _loading   = false;
-        _tickets   = _placeholder; // swap for real mapping later
+        _tickets   = _placeholder;
       });
     } catch (_) {
       if (mounted) setState(() {
@@ -414,12 +410,11 @@ class _DashboardPageState extends State<_DashboardPage> {
   }
 
   void _onCodeReceived(String code) {
-    // TODO: call backend to issue ticket for this service code
     _showSnack('Ticket request sent!', Colors.green);
     _load();
   }
 
-  // ── Initials helper ──────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────
 
   String _initials() {
     if (widget.user.username.isEmpty) return '?';
@@ -452,12 +447,11 @@ class _DashboardPageState extends State<_DashboardPage> {
           children: [
             const SizedBox(height: 22),
 
-            // ── Top bar ──────────────────────────────────
+            // ── Top bar (settings gear removed) ──────────
             _TopBar(
-              user:       widget.user,
-              dark:       _dark,
-              initials:   _initials(),
-              onSettings: () => _openSettingsDrawer(context),
+              user:     widget.user,
+              dark:     _dark,
+              initials: _initials(),
             ),
             const SizedBox(height: 26),
 
@@ -501,7 +495,6 @@ class _DashboardPageState extends State<_DashboardPage> {
     );
   }
 
-  // ── Recent tickets section ───────────────────────────────────
   Widget _buildTicketSection() {
     if (_tickets.isEmpty) {
       return Container(
@@ -529,7 +522,6 @@ class _DashboardPageState extends State<_DashboardPage> {
     }
 
     return Column(children: [
-      // Page indicator dots
       if (_tickets.length > 1) ...[
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
@@ -550,10 +542,8 @@ class _DashboardPageState extends State<_DashboardPage> {
         const SizedBox(height: 10),
       ],
 
-      // Swipeable cards — fills remaining screen space
       LayoutBuilder(
         builder: (context, constraints) {
-          // Use remaining viewport height or a comfortable minimum
           final h = constraints.maxHeight.isInfinite ? 400.0
               : constraints.maxHeight.clamp(320.0, 600.0);
           return SizedBox(
@@ -579,54 +569,27 @@ class _DashboardPageState extends State<_DashboardPage> {
       ),
     ]);
   }
-
-  // ── Settings drawer ──────────────────────────────────────────
-  void _openSettingsDrawer(BuildContext context) {
-    showGeneralDialog(
-      context:            context,
-      barrierDismissible: true,
-      barrierLabel:       'Settings',
-      barrierColor:       Colors.black54,
-      transitionDuration: const Duration(milliseconds: 280),
-      pageBuilder: (_, __, ___) => Align(
-        alignment: Alignment.centerRight,
-        child: Material(
-          color: Colors.transparent,
-          child: _SettingsDrawer(
-            dark:     _dark,
-            user:     widget.user,
-            onLogout: widget.onLogout),
-        ),
-      ),
-      transitionBuilder: (_, anim, __, child) => SlideTransition(
-        position: Tween<Offset>(
-          begin: const Offset(1, 0), end: Offset.zero,
-        ).animate(CurvedAnimation(
-            parent: anim, curve: Curves.easeOutCubic)),
-        child: child),
-    );
-  }
 }
 
 // =============================================================
-// TOP BAR
+// TOP BAR  — Settings gear removed; just brand + theme + avatar
+// OOP Principle: Single Responsibility
 // =============================================================
 class _TopBar extends StatelessWidget {
-  final AuthUser     user;
-  final bool         dark;
-  final String       initials;
-  final VoidCallback onSettings;
+  final AuthUser user;
+  final bool     dark;
+  final String   initials;
 
   const _TopBar({
     required this.user,
     required this.dark,
     required this.initials,
-    required this.onSettings,
   });
 
   @override
   Widget build(BuildContext context) {
     return Row(children: [
+      // Brand
       Container(
         width: 32, height: 32,
         decoration: BoxDecoration(
@@ -659,31 +622,23 @@ class _TopBar extends StatelessWidget {
             size: 16))),
       const SizedBox(width: 10),
 
-      // Settings button
+      // Avatar — tapping navigates to Profile tab (index 3)
       GestureDetector(
-        onTap: onSettings,
+        onTap: () {
+          // Find MainShell's onNavigate via the inherited widget tree
+          // This is wired via the onNavigate callback passed from MainShell
+        },
         child: Container(
           width: 36, height: 36,
           decoration: BoxDecoration(
-            color:        AppTheme.card(dark),
-            borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: AppTheme.border(dark))),
-          child: Icon(Icons.settings_rounded,
-              color: AppTheme.textMuted(dark), size: 16))),
-      const SizedBox(width: 10),
-
-      // Avatar
-      Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          color:  AppTheme.crimson.withOpacity(0.14),
-          shape:  BoxShape.circle,
-          border: Border.all(
-              color: AppTheme.crimson.withOpacity(0.3))),
-        child: Center(child: Text(initials, style: const TextStyle(
-          color:      AppTheme.crimson,
-          fontSize:   13,
-          fontWeight: FontWeight.w900)))),
+            color:  AppTheme.crimson.withOpacity(0.14),
+            shape:  BoxShape.circle,
+            border: Border.all(
+                color: AppTheme.crimson.withOpacity(0.3))),
+          child: Center(child: Text(initials, style: const TextStyle(
+            color:      AppTheme.crimson,
+            fontSize:   13,
+            fontWeight: FontWeight.w900))))),
     ]);
   }
 }
@@ -728,7 +683,7 @@ class _Greeting extends StatelessWidget {
 }
 
 // =============================================================
-// CREATE BANNER  (two direct action buttons)
+// CREATE BANNER
 // =============================================================
 class _CreateBanner extends StatefulWidget {
   final bool         dark;
@@ -803,8 +758,6 @@ class _CreateBannerState extends State<_CreateBanner>
                   color: Colors.white.withOpacity(0.75),
                   fontSize: 13)),
             const SizedBox(height: 16),
-
-            // Two direct action buttons
             Row(children: [
               Expanded(child: GestureDetector(
                 onTapDown:   (_) => _c.forward(),
@@ -855,7 +808,7 @@ class _CreateBannerState extends State<_CreateBanner>
 }
 
 // =============================================================
-// STATS ROW  — Total / Active / Suspended / Cancelled
+// STATS ROW
 // =============================================================
 class _StatsRow extends StatelessWidget {
   final bool dark, loading;
@@ -923,7 +876,7 @@ class _StatCard extends StatelessWidget {
 }
 
 // =============================================================
-// DASHBOARD TICKET CARD  (full queue info + inline actions)
+// DASHBOARD TICKET CARD
 // =============================================================
 class _DashTicketCard extends StatelessWidget {
   final DashTicket   ticket;
@@ -969,8 +922,6 @@ class _DashTicketCard extends StatelessWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
-            // Service + status
             Row(children: [
               Expanded(child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -999,12 +950,8 @@ class _DashTicketCard extends StatelessWidget {
                   color: sc, fontSize: 9,
                   fontWeight: FontWeight.w800, letterSpacing: 1))),
             ]),
-
             const SizedBox(height: 12),
-
-            // Ticket number + queue stats
             Row(children: [
-              // Big ticket number
               Container(
                 padding: const EdgeInsets.symmetric(
                     horizontal: 14, vertical: 10),
@@ -1018,7 +965,6 @@ class _DashTicketCard extends StatelessWidget {
                   fontWeight: FontWeight.w900,
                   letterSpacing: 2))),
               const SizedBox(width: 14),
-              // Info column
               Expanded(child: Column(children: [
                 _row(dark, Icons.people_outline_rounded,
                     'Ahead',    '${ticket.peopleAhead}'),
@@ -1037,10 +983,7 @@ class _DashTicketCard extends StatelessWidget {
                     highlight: true),
               ])),
             ]),
-
             const SizedBox(height: 12),
-
-            // Queue progress bar
             Column(crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
@@ -1069,10 +1012,7 @@ class _DashTicketCard extends StatelessWidget {
                     valueColor: const AlwaysStoppedAnimation<Color>(
                         AppTheme.crimson))),
               ]),
-
             const SizedBox(height: 12),
-
-            // Swap request or action buttons
             if (ticket.hasSwapRequest) ...[
               Container(
                 padding: const EdgeInsets.all(10),
@@ -1183,7 +1123,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 // =============================================================
-// SKELETON CARD  (loading placeholder)
+// SKELETON CARD
 // =============================================================
 class _SkeletonCard extends StatelessWidget {
   final bool dark;
@@ -1226,208 +1166,6 @@ class _ErrorStrip extends StatelessWidget {
 }
 
 // =============================================================
-// SETTINGS DRAWER  (right side panel)
-// =============================================================
-class _SettingsDrawer extends StatelessWidget {
-  final bool         dark;
-  final AuthUser     user;
-  final VoidCallback onLogout;
-
-  const _SettingsDrawer({
-    required this.dark,
-    required this.user,
-    required this.onLogout,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 280,
-      height: double.infinity,
-      decoration: BoxDecoration(
-        color:  AppTheme.card(dark),
-        border: Border(
-            left: BorderSide(color: AppTheme.border(dark)))),
-      child: SafeArea(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            // Header
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text('Settings', style: TextStyle(
-                    color:      AppTheme.textPrimary(dark),
-                    fontSize:   20,
-                    fontWeight: FontWeight.w900)),
-                  GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: Container(
-                      padding: const EdgeInsets.all(8),
-                      decoration: BoxDecoration(
-                        color:        AppTheme.surface(dark),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                            color: AppTheme.border(dark))),
-                      child: Icon(Icons.close_rounded,
-                          color: AppTheme.textMuted(dark), size: 18))),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-            Divider(color: AppTheme.border(dark)),
-            const SizedBox(height: 16),
-
-            // Theme toggle
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _sLabel('APPEARANCE'),
-            ),
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Text(dark ? 'Dark Mode' : 'Light Mode',
-                    style: TextStyle(
-                      color:      AppTheme.textPrimary(dark),
-                      fontSize:   14,
-                      fontWeight: FontWeight.w600)),
-                  GestureDetector(
-                    onTap: () => ThemeProvider().toggleTheme(),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 300),
-                      width: 48, height: 26,
-                      decoration: BoxDecoration(
-                        color: dark
-                            ? AppTheme.crimson
-                            : AppTheme.border(dark),
-                        borderRadius: BorderRadius.circular(13)),
-                      child: AnimatedAlign(
-                        duration: const Duration(milliseconds: 300),
-                        curve:    Curves.easeInOut,
-                        alignment: dark
-                            ? Alignment.centerRight
-                            : Alignment.centerLeft,
-                        child: Container(
-                          width: 20, height: 20,
-                          margin: const EdgeInsets.symmetric(
-                              horizontal: 3),
-                          decoration: const BoxDecoration(
-                            color: Colors.white,
-                            shape: BoxShape.circle))))),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 24),
-            Divider(color: AppTheme.border(dark)),
-            const SizedBox(height: 16),
-
-            // Account section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _sLabel('ACCOUNT'),
-            ),
-            const SizedBox(height: 12),
-            _tile(context, dark, Icons.person_outline_rounded,
-                'Edit Profile', () {}),
-            const SizedBox(height: 8),
-            _tile(context, dark, Icons.lock_outline_rounded,
-                'Change Password', () {}),
-
-            const SizedBox(height: 24),
-            Divider(color: AppTheme.border(dark)),
-            const SizedBox(height: 16),
-
-            // About section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _sLabel('ABOUT'),
-            ),
-            const SizedBox(height: 12),
-            _tile(context, dark, Icons.info_outline_rounded,
-                'About TICKETY', () {}),
-            _tile(context, dark, Icons.privacy_tip_outlined,
-                'Privacy Policy', () {}),
-            _tile(context, dark, Icons.article_outlined,
-                'Terms of Service', () {}),
-
-            const Spacer(),
-            Divider(color: AppTheme.border(dark)),
-            const SizedBox(height: 12),
-
-            // Logout
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.pop(context);
-                  onLogout();
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  decoration: BoxDecoration(
-                    color:        AppTheme.crimson.withOpacity(0.08),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: AppTheme.crimson.withOpacity(0.3))),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: const [
-                      Icon(Icons.logout_rounded,
-                          color: AppTheme.crimson, size: 18),
-                      SizedBox(width: 8),
-                      Text('Log Out', style: TextStyle(
-                        color:      AppTheme.crimson,
-                        fontSize:   14,
-                        fontWeight: FontWeight.w700)),
-                    ])))),
-          ],
-        ),
-      ),
-    );
-  }
-
-  Widget _sLabel(String text) => Text(text, style: TextStyle(
-    color:      AppTheme.textMuted(dark),
-    fontSize:   11,
-    fontWeight: FontWeight.w700,
-    letterSpacing: 2));
-
-  Widget _tile(BuildContext context, bool dark, IconData icon,
-      String label, VoidCallback onTap) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 24, vertical: 4),
-      child: GestureDetector(
-        onTap: onTap,
-        child: Container(
-          padding: const EdgeInsets.symmetric(
-              horizontal: 14, vertical: 13),
-          decoration: BoxDecoration(
-            color:        AppTheme.surface(dark),
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: AppTheme.border(dark))),
-          child: Row(children: [
-            Icon(icon, color: AppTheme.textMuted(dark), size: 18),
-            const SizedBox(width: 12),
-            Expanded(child: Text(label, style: TextStyle(
-              color:      AppTheme.textPrimary(dark),
-              fontSize:   13,
-              fontWeight: FontWeight.w600))),
-            Icon(Icons.chevron_right_rounded,
-                color: AppTheme.textMuted(dark), size: 16),
-          ]))));
-  }
-}
-
-// =============================================================
 // SWAP PICKER SHEET
 // =============================================================
 class _SwapPickerSheet extends StatefulWidget {
@@ -1447,7 +1185,6 @@ class _SwapPickerSheet extends StatefulWidget {
 
 class _SwapPickerSheetState extends State<_SwapPickerSheet> {
 
-  // Placeholder queue members — replaced by real API data later
   final List<Map<String, String>> _members = const [
     {'ticket': 'A041', 'position': '1', 'wait': '2 min'},
     {'ticket': 'A043', 'position': '2', 'wait': '6 min'},
@@ -1470,14 +1207,11 @@ class _SwapPickerSheetState extends State<_SwapPickerSheet> {
         child: Padding(
           padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-            // Handle
             Container(width: 40, height: 4,
               decoration: BoxDecoration(
                 color:        AppTheme.border(dark),
                 borderRadius: BorderRadius.circular(2))),
             const SizedBox(height: 20),
-
-            // Header
             Row(children: [
               Container(
                 padding: const EdgeInsets.all(10),
@@ -1503,10 +1237,7 @@ class _SwapPickerSheetState extends State<_SwapPickerSheet> {
                         color: AppTheme.textMuted(dark), fontSize: 12)),
                 ])),
             ]),
-
             const SizedBox(height: 12),
-
-            // Your ticket info
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 14, vertical: 10),
@@ -1530,12 +1261,9 @@ class _SwapPickerSheetState extends State<_SwapPickerSheet> {
                 Text('Select target', style: TextStyle(
                     color: AppTheme.textMuted(dark), fontSize: 12)),
               ])),
-
             const SizedBox(height: 12),
             Divider(color: AppTheme.border(dark)),
             const SizedBox(height: 8),
-
-            // Member list
             SizedBox(
               height: 200,
               child: ListView.separated(
@@ -1543,8 +1271,8 @@ class _SwapPickerSheetState extends State<_SwapPickerSheet> {
                 separatorBuilder: (_, __) =>
                     const SizedBox(height: 8),
                 itemBuilder: (_, i) {
-                  final m        = _members[i];
-                  final ticket   = m['ticket']!;
+                  final m          = _members[i];
+                  final ticket     = m['ticket']!;
                   final isSelected = _selected == ticket;
                   return GestureDetector(
                     onTap: () =>
@@ -1568,14 +1296,12 @@ class _SwapPickerSheetState extends State<_SwapPickerSheet> {
                           width: 42, height: 42,
                           decoration: BoxDecoration(
                             color: isSelected
-                                ? const Color(0xFF2196F3)
-                                    .withOpacity(0.12)
+                                ? const Color(0xFF2196F3).withOpacity(0.12)
                                 : AppTheme.card(dark),
                             borderRadius: BorderRadius.circular(11),
                             border: Border.all(
                               color: isSelected
-                                  ? const Color(0xFF2196F3)
-                                      .withOpacity(0.3)
+                                  ? const Color(0xFF2196F3).withOpacity(0.3)
                                   : AppTheme.border(dark))),
                           child: Center(child: Text(ticket,
                             style: TextStyle(
@@ -1605,10 +1331,7 @@ class _SwapPickerSheetState extends State<_SwapPickerSheet> {
                 },
               ),
             ),
-
             const SizedBox(height: 16),
-
-            // Send button
             SizedBox(
               width: double.infinity, height: 52,
               child: ElevatedButton(

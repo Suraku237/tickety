@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import '../services/session_service.dart';
+import '../services/api_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
 import 'home_page.dart';
@@ -7,14 +9,32 @@ import 'home_page.dart';
 // PROFILE PAGE
 // Responsibilities:
 //   - Display and edit user profile (username, email)
-//   - Change password bottom sheet
-//   - Delete account dialog
 //   - Account stats
-// OOP Principle: Single Responsibility, Encapsulation
+//   - Appearance (theme toggle) — merged from old settings drawer
+//   - Security (change password, notification preferences)
+//   - About (About TICKETY, Privacy Policy, Terms of Service)
+//     — merged from old settings drawer
+//   - Danger Zone (delete account)
+//   - Logout — merged from old settings drawer
+//
+// Changes from previous version:
+//   - Appearance section added (theme toggle)
+//   - About section added (About, Privacy, Terms)
+//   - Logout button added at the very bottom
+//   - "Edit Profile" tile removed from settings drawer (drawer gone)
+//   - Settings drawer no longer exists anywhere in the app
+//
+// OOP Principle: Single Responsibility, Encapsulation, Composition
 // =============================================================
 class ProfilePage extends StatefulWidget {
-  final AuthUser user;
-  const ProfilePage({super.key, required this.user});
+  final AuthUser     user;
+  final VoidCallback onLogout;
+
+  const ProfilePage({
+    super.key,
+    required this.user,
+    required this.onLogout,
+  });
 
   @override
   State<ProfilePage> createState() => _ProfilePageState();
@@ -86,6 +106,17 @@ class _ProfilePageState extends State<ProfilePage>
       shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(12)),
     ));
+  }
+
+  // ── Logout confirmation ──────────────────────────────────────
+  void _confirmLogout() {
+    showDialog(
+      context: context,
+      builder: (_) => _LogoutDialog(
+        isDark:    isDark,
+        onConfirm: widget.onLogout,
+      ),
+    );
   }
 
   @override
@@ -240,7 +271,7 @@ class _ProfilePageState extends State<ProfilePage>
                           Icons.calendar_today_outlined, small: true),
                     ]),
 
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 28),
 
                     // ── ACCOUNT INFO ──────────────────────
                     _sLabel('ACCOUNT INFO'),
@@ -285,7 +316,77 @@ class _ProfilePageState extends State<ProfilePage>
                               fontWeight: FontWeight.w700))))),
                     ],
 
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 28),
+
+                    // ── APPEARANCE ────────────────────────
+                    // Moved from old settings drawer
+                    _sLabel('APPEARANCE'),
+                    const SizedBox(height: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 14),
+                      decoration: BoxDecoration(
+                        color:        AppTheme.card(isDark),
+                        borderRadius: BorderRadius.circular(14),
+                        border: Border.all(
+                            color: AppTheme.border(isDark))),
+                      child: Row(children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color:        AppTheme.crimson.withOpacity(0.1),
+                            borderRadius: BorderRadius.circular(9)),
+                          child: Icon(
+                            isDark
+                                ? Icons.dark_mode_rounded
+                                : Icons.light_mode_rounded,
+                            color: AppTheme.crimson, size: 18)),
+                        const SizedBox(width: 14),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isDark ? 'Dark Mode' : 'Light Mode',
+                              style: TextStyle(
+                                color:      AppTheme.textPrimary(isDark),
+                                fontSize:   14,
+                                fontWeight: FontWeight.w600)),
+                            const SizedBox(height: 2),
+                            Text(
+                              isDark
+                                  ? 'Switch to light theme'
+                                  : 'Switch to dark theme',
+                              style: TextStyle(
+                                color:    AppTheme.textMuted(isDark),
+                                fontSize: 12)),
+                          ])),
+                        // Animated toggle switch
+                        GestureDetector(
+                          onTap: () => ThemeProvider().toggleTheme(),
+                          child: AnimatedContainer(
+                            duration: const Duration(milliseconds: 300),
+                            width: 48, height: 26,
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? AppTheme.crimson
+                                  : AppTheme.border(isDark),
+                              borderRadius: BorderRadius.circular(13)),
+                            child: AnimatedAlign(
+                              duration: const Duration(milliseconds: 300),
+                              curve:    Curves.easeInOut,
+                              alignment: isDark
+                                  ? Alignment.centerRight
+                                  : Alignment.centerLeft,
+                              child: Container(
+                                width: 20, height: 20,
+                                margin: const EdgeInsets.symmetric(
+                                    horizontal: 3),
+                                decoration: const BoxDecoration(
+                                  color: Colors.white,
+                                  shape: BoxShape.circle)))),
+                )])),
+
+                    const SizedBox(height: 28),
 
                     // ── SECURITY ──────────────────────────
                     _sLabel('SECURITY'),
@@ -307,7 +408,31 @@ class _ProfilePageState extends State<ProfilePage>
                       color: AppTheme.textPrimary(isDark),
                       onTap: () {}),
 
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 28),
+
+                    // ── ABOUT ─────────────────────────────
+                    // Moved from old settings drawer
+                    _sLabel('ABOUT'),
+                    const SizedBox(height: 12),
+                    _actionTile(
+                      icon:  Icons.info_outline_rounded,
+                      label: 'About TICKETY',
+                      color: AppTheme.textPrimary(isDark),
+                      onTap: () => _showAboutSheet()),
+                    const SizedBox(height: 10),
+                    _actionTile(
+                      icon:  Icons.privacy_tip_outlined,
+                      label: 'Privacy Policy',
+                      color: AppTheme.textPrimary(isDark),
+                      onTap: () {}),
+                    const SizedBox(height: 10),
+                    _actionTile(
+                      icon:  Icons.article_outlined,
+                      label: 'Terms of Service',
+                      color: AppTheme.textPrimary(isDark),
+                      onTap: () {}),
+
+                    const SizedBox(height: 28),
 
                     // ── DANGER ZONE ───────────────────────
                     _sLabel('DANGER ZONE'),
@@ -320,12 +445,113 @@ class _ProfilePageState extends State<ProfilePage>
                         context: context,
                         builder: (_) =>
                             _DeleteAccountDialog(isDark: isDark))),
+
+                    const SizedBox(height: 28),
+
+                    // ── LOGOUT ────────────────────────────
+                    // Moved from old settings drawer — standard placement
+                    GestureDetector(
+                      onTap: _confirmLogout,
+                      child: Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        decoration: BoxDecoration(
+                          color:        AppTheme.crimson.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(
+                              color: AppTheme.crimson.withOpacity(0.3))),
+                        child: Row(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: const [
+                            Icon(Icons.logout_rounded,
+                                color: AppTheme.crimson, size: 18),
+                            SizedBox(width: 10),
+                            Text('Log Out', style: TextStyle(
+                              color:      AppTheme.crimson,
+                              fontSize:   15,
+                              fontWeight: FontWeight.w700)),
+                          ]))),
+
+                    const SizedBox(height: 8),
+                    Center(
+                      child: Text(
+                        'TICKETY v1.0.0',
+                        style: TextStyle(
+                          color:    AppTheme.textMuted(isDark).withOpacity(0.4),
+                          fontSize: 11,
+                          letterSpacing: 1),
+                      ),
+                    ),
                   ],
                 ),
               ),
             ),
           ])),
         ]),
+      ),
+    );
+  }
+
+  // ── About sheet ──────────────────────────────────────────────
+  void _showAboutSheet() {
+    showModalBottomSheet(
+      context:         context,
+      backgroundColor: Colors.transparent,
+      builder: (_) => Container(
+        decoration: BoxDecoration(
+          color:        AppTheme.card(isDark),
+          borderRadius: const BorderRadius.vertical(
+              top: Radius.circular(28))),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+            child: Column(mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 40, height: 4,
+                  decoration: BoxDecoration(
+                    color:        AppTheme.border(isDark),
+                    borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 24),
+                Container(
+                  width: 72, height: 72,
+                  decoration: BoxDecoration(
+                    color:        AppTheme.crimson,
+                    borderRadius: BorderRadius.circular(18),
+                    boxShadow: [BoxShadow(
+                      color:      AppTheme.crimson.withOpacity(0.35),
+                      blurRadius: 20, offset: const Offset(0, 8))]),
+                  child: const Icon(Icons.confirmation_num_rounded,
+                      color: Colors.white, size: 34)),
+                const SizedBox(height: 18),
+                Text('TICKETY', style: TextStyle(
+                  color:      AppTheme.textPrimary(isDark),
+                  fontSize:   24,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 4)),
+                const SizedBox(height: 6),
+                Text('Smart Queue Management System',
+                  style: TextStyle(
+                    color:    AppTheme.textMuted(isDark),
+                    fontSize: 13)),
+                const SizedBox(height: 4),
+                Text('Version 1.0.0',
+                  style: TextStyle(
+                    color:    AppTheme.textMuted(isDark).withOpacity(0.5),
+                    fontSize: 12)),
+                const SizedBox(height: 20),
+                Text(
+                  'TICKETY helps you manage service queues and digital '
+                  'tickets with a modern, intuitive interface. '
+                  'Skip the physical line — queue from anywhere.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color:  AppTheme.textMuted(isDark),
+                    fontSize: 13,
+                    height: 1.6)),
+                const SizedBox(height: 24),
+              ]),
+          ),
+        ),
       ),
     );
   }
@@ -484,6 +710,81 @@ class _ProfilePageState extends State<ProfilePage>
           Icon(Icons.chevron_right_rounded,
               color: color.withOpacity(0.4), size: 18),
         ])));
+  }
+}
+
+// =============================================================
+// LOGOUT CONFIRMATION DIALOG
+// OOP Principle: Single Responsibility — one job: confirm logout
+// =============================================================
+class _LogoutDialog extends StatelessWidget {
+  final bool         isDark;
+  final VoidCallback onConfirm;
+
+  const _LogoutDialog({
+    required this.isDark,
+    required this.onConfirm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.card(isDark),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color:  AppTheme.crimson.withOpacity(0.1),
+              shape:  BoxShape.circle,
+              border: Border.all(
+                  color: AppTheme.crimson.withOpacity(0.3))),
+            child: const Icon(Icons.logout_rounded,
+                color: AppTheme.crimson, size: 28)),
+          const SizedBox(height: 16),
+          Text('Log Out', style: TextStyle(
+            color:      AppTheme.textPrimary(isDark),
+            fontSize:   17,
+            fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          Text(
+            'Are you sure you want to log out of your account?',
+            textAlign: TextAlign.center,
+            style: TextStyle(
+                color: AppTheme.textMuted(isDark),
+                fontSize: 13, height: 1.5)),
+          const SizedBox(height: 24),
+          Row(children: [
+            Expanded(child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  color:        AppTheme.surface(isDark),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: AppTheme.border(isDark))),
+                child: Center(child: Text('Cancel', style: TextStyle(
+                  color:      AppTheme.textPrimary(isDark),
+                  fontWeight: FontWeight.w700)))))),
+            const SizedBox(width: 12),
+            Expanded(child: GestureDetector(
+              onTap: () { Navigator.pop(context); onConfirm(); },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  color:        AppTheme.crimson,
+                  borderRadius: BorderRadius.circular(12)),
+                child: const Center(child: Text('Log Out',
+                  style: TextStyle(
+                    color:      Colors.white,
+                    fontWeight: FontWeight.w700)))))),
+          ]),
+        ]),
+      ),
+    );
   }
 }
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../services/api_service.dart';
+import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
 import 'home_page.dart';
@@ -9,6 +11,7 @@ import 'profile_page.dart';
 
 // =============================================================
 // NAV ITEM MODEL
+// OOP Principle: Encapsulation — groups icon + label together
 // =============================================================
 class _NavItem {
   final IconData activeIcon;
@@ -28,6 +31,13 @@ class _NavItem {
 //   - Host all 4 main pages in an IndexedStack (pages stay alive)
 //   - Provide animated bottom navigation bar
 //   - Pass onNavigate callback to HomePage for quick actions
+//   - Own logout logic and pass it down to ProfilePage
+//
+// Changes from previous version:
+//   - Settings drawer removed entirely
+//   - onLogout now passed to ProfilePage (not HomePage's drawer)
+//   - ProfilePage constructor updated to accept onLogout
+//
 // OOP Principle: Single Responsibility, Composition
 // =============================================================
 class MainShell extends StatefulWidget {
@@ -46,6 +56,9 @@ class MainShell extends StatefulWidget {
 
 class _MainShellState extends State<MainShell>
     with SingleTickerProviderStateMixin {
+
+  final _session = SessionService();
+  final _api     = ApiService();
 
   bool get isDark => ThemeProvider().isDarkMode;
   late int _currentIndex;
@@ -90,6 +103,14 @@ class _MainShellState extends State<MainShell>
 
   void _switchTo(int index) => setState(() => _currentIndex = index);
 
+  // Owned here and passed down to ProfilePage
+  Future<void> _logout() async {
+    await _session.clear();
+    _api.clearToken();
+    if (!mounted) return;
+    Navigator.of(context).popUntil((r) => r.isFirst);
+  }
+
   @override
   Widget build(BuildContext context) {
     SystemChrome.setSystemUIOverlayStyle(SystemUiOverlayStyle(
@@ -104,14 +125,14 @@ class _MainShellState extends State<MainShell>
       body: IndexedStack(
         index: _currentIndex,
         children: [
-          // Tab 0 — Home (dashboard + recent tickets)
+          // Tab 0 — Home dashboard
           HomePage(user: widget.user, onNavigate: _switchTo),
           // Tab 1 — Services
           const ServicesPage(),
           // Tab 2 — Alerts
           const AlertsPage(),
-          // Tab 3 — Profile
-          ProfilePage(user: widget.user),
+          // Tab 3 — Profile (owns theme, about, logout)
+          ProfilePage(user: widget.user, onLogout: _logout),
         ],
       ),
       bottomNavigationBar: _buildNavBar(),
