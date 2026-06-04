@@ -8,10 +8,22 @@ import '../utils/auth_widgets.dart';
 import '../utils/theme_provider.dart';
 import 'auth_page.dart';
 import 'home_page.dart';
+import 'main_shell.dart';
 
+// =============================================================
+// VERIFICATION PAGE
+// Responsibilities:
+//   - Accept 6-digit OTP from user
+//   - Delegate verify/resend to ApiService
+//   - Save session + token via SessionService after success
+//   - Navigate to MainShell on success
+// OOP Principle: Inheritance (extends AuthPage), Single Responsibility
+// FIX: KeyboardListener replaces deprecated RawKeyboardListener
+// =============================================================
 class VerificationPage extends AuthPage {
   final String  email;
   final String? username;
+
   const VerificationPage({super.key, required this.email, this.username});
 
   @override
@@ -42,10 +54,11 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
   void initState() {
     super.initState();
     _pulseController = AnimationController(
-      vsync: this, duration: const Duration(milliseconds: 1500))
+        vsync: this, duration: const Duration(milliseconds: 1500))
       ..repeat(reverse: true);
     _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+        CurvedAnimation(
+            parent: _pulseController, curve: Curves.easeInOut));
     _startCooldown(60);
   }
 
@@ -79,7 +92,7 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
     }
   }
 
-  // ── FIX: replaced deprecated RawKeyboardListener with KeyboardListener ──
+  // FIX: KeyboardListener instead of deprecated RawKeyboardListener
   void _onKeyEvent(int index, KeyEvent event) {
     if (event is KeyDownEvent &&
         event.logicalKey == LogicalKeyboardKey.backspace) {
@@ -97,7 +110,8 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
 
   Future<void> _onVerify() async {
     if (_otpCode.length < 6) {
-      setState(() => _errorMessage = 'Please enter the complete 6-digit code');
+      setState(() =>
+          _errorMessage = 'Please enter the complete 6-digit code');
       return;
     }
     setState(() {
@@ -115,12 +129,10 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
     if (data['success'] == true) {
       setState(() => _successMessage = 'Email verified! Redirecting…');
 
-      // ── FIX: read userId from response; fall back to empty string ──
       final resolvedUserId   = data['user_id']  ?? '';
-      final resolvedUsername = data['username'] ?? widget.username
-          ?? widget.email.split('@')[0];
+      final resolvedUsername = data['username'] ??
+          widget.username ?? widget.email.split('@')[0];
 
-      // ── FIX: pass token from verify response if present ──
       await _sessionService.save(
         userId:   resolvedUserId,
         username: resolvedUsername,
@@ -134,18 +146,18 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
       Navigator.pushAndRemoveUntil(
         context,
         MaterialPageRoute(
-          builder: (_) => HomePage(
+          builder: (_) => MainShell(
             user: AuthUser(
               userId:   resolvedUserId,
               username: resolvedUsername,
-              email:    widget.email,
-            ),
+              email:    widget.email),
           ),
         ),
         (route) => false,
       );
     } else {
-      setState(() => _errorMessage = data['message'] ?? 'Invalid code. Please try again.');
+      setState(() => _errorMessage =
+          data['message'] ?? 'Invalid code. Please try again.');
       _clearDigits();
     }
   }
@@ -165,119 +177,121 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
       _startCooldown(60);
       _clearDigits();
     } else {
-      setState(() =>
-          _errorMessage = data['message'] ?? 'Could not resend code. Try again.');
+      setState(() => _errorMessage =
+          data['message'] ?? 'Could not resend code. Try again.');
     }
   }
 
   @override
   Widget buildBody(BuildContext context) {
-    return Stack(
-      children: [
-        AuthWidgets.buildGlowCircle(
-            size: 300, opacity: 0.15, alignment: Alignment.topCenter),
-        SafeArea(
-          child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 28),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 24),
+    return Stack(children: [
+      AuthWidgets.buildGlowCircle(
+          size: 300, opacity: 0.15, alignment: Alignment.topCenter),
+      SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 24),
 
-                // Back + theme toggle row
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    GestureDetector(
-                      onTap: () => Navigator.pop(context),
-                      child: Container(
-                        padding: const EdgeInsets.all(10),
-                        decoration: BoxDecoration(
-                          color:        AppTheme.card(isDark),
-                          borderRadius: BorderRadius.circular(10),
-                          border:       Border.all(color: AppTheme.border(isDark)),
-                        ),
-                        child: Icon(Icons.arrow_back_rounded,
-                            color: AppTheme.textPrimary(isDark), size: 20),
-                      ),
-                    ),
-                    AuthWidgets.buildThemeToggle(
-                      isDark:   isDark,
-                      onToggle: () => ThemeProvider().toggleTheme(),
-                    ),
-                  ],
-                ),
-
-                const SizedBox(height: 40),
-
-                Center(
-                  child: ScaleTransition(
-                    scale: _pulseAnimation,
+              // Back + theme toggle
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
                     child: Container(
-                      width: 80, height: 80,
+                      padding: const EdgeInsets.all(10),
                       decoration: BoxDecoration(
-                        color:  AppTheme.crimson.withOpacity(0.12),
-                        shape:  BoxShape.circle,
+                        color:        AppTheme.card(isDark),
+                        borderRadius: BorderRadius.circular(10),
                         border: Border.all(
-                            color: AppTheme.crimson.withOpacity(0.35),
-                            width: 1.5),
-                      ),
-                      child: const Icon(Icons.mark_email_read_outlined,
-                          color: AppTheme.crimson, size: 36),
-                    ),
-                  ),
-                ),
-
-                const SizedBox(height: 28),
-
-                Center(child: Text('Verify Your Email', style: TextStyle(
-                  color: AppTheme.textPrimary(isDark), fontSize: 28,
-                  fontWeight: FontWeight.w900, letterSpacing: -0.5,
-                ))),
-                const SizedBox(height: 10),
-                Center(child: Text('We sent a 6-digit code to',
-                    style: TextStyle(
-                        color: AppTheme.textMuted(isDark), fontSize: 14))),
-                const SizedBox(height: 4),
-                Center(child: Text(widget.email, style: const TextStyle(
-                    color: AppTheme.crimson,
-                    fontSize: 14, fontWeight: FontWeight.w600))),
-
-                const SizedBox(height: 40),
-
-                if (_errorMessage != null) ...[
-                  AuthWidgets.buildErrorBanner(_errorMessage!),
-                  const SizedBox(height: 20),
+                            color: AppTheme.border(isDark))),
+                      child: Icon(Icons.arrow_back_rounded,
+                          color: AppTheme.textPrimary(isDark),
+                          size: 20))),
+                  AuthWidgets.buildThemeToggle(
+                    isDark:   isDark,
+                    onToggle: () => ThemeProvider().toggleTheme()),
                 ],
-                if (_successMessage != null) ...[
-                  AuthWidgets.buildSuccessBanner(_successMessage!),
-                  const SizedBox(height: 20),
-                ],
+              ),
 
-                // ── 6-digit OTP boxes ──
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: List.generate(6, _buildDigitBox),
-                ),
+              const SizedBox(height: 40),
 
-                const SizedBox(height: 36),
+              // Pulsing icon
+              Center(
+                child: ScaleTransition(
+                  scale: _pulseAnimation,
+                  child: Container(
+                    width: 80, height: 80,
+                    decoration: BoxDecoration(
+                      color:  AppTheme.crimson.withOpacity(0.12),
+                      shape:  BoxShape.circle,
+                      border: Border.all(
+                          color: AppTheme.crimson.withOpacity(0.35),
+                          width: 1.5)),
+                    child: const Icon(
+                        Icons.mark_email_read_outlined,
+                        color: AppTheme.crimson, size: 36)))),
 
-                AuthWidgets.buildPrimaryButton(
-                  label: 'VERIFY CODE', isLoading: _isLoading,
-                  onPressed: _onVerify,
-                ),
+              const SizedBox(height: 28),
 
-                const SizedBox(height: 28),
+              Center(child: Text('Verify Your Email', style: TextStyle(
+                color:      AppTheme.textPrimary(isDark),
+                fontSize:   28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5))),
+              const SizedBox(height: 10),
+              Center(child: Text('We sent a 6-digit code to',
+                  style: TextStyle(
+                      color: AppTheme.textMuted(isDark),
+                      fontSize: 14))),
+              const SizedBox(height: 4),
+              Center(child: Text(widget.email,
+                style: const TextStyle(
+                  color:      AppTheme.crimson,
+                  fontSize:   14,
+                  fontWeight: FontWeight.w600))),
 
-                Center(
-                  child: GestureDetector(
-                    onTap: _resendCooldown == 0 ? _onResend : null,
-                    child: _isResending
-                        ? const SizedBox(
-                            width: 18, height: 18,
-                            child: CircularProgressIndicator(
-                                strokeWidth: 2, color: AppTheme.crimson))
-                        : RichText(text: TextSpan(
+              const SizedBox(height: 40),
+
+              if (_errorMessage != null) ...[
+                AuthWidgets.buildErrorBanner(_errorMessage!),
+                const SizedBox(height: 20),
+              ],
+              if (_successMessage != null) ...[
+                AuthWidgets.buildSuccessBanner(_successMessage!),
+                const SizedBox(height: 20),
+              ],
+
+              // OTP boxes
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: List.generate(6, _buildDigitBox),
+              ),
+
+              const SizedBox(height: 36),
+
+              AuthWidgets.buildPrimaryButton(
+                label:     'VERIFY CODE',
+                isLoading: _isLoading,
+                onPressed: _onVerify,
+              ),
+
+              const SizedBox(height: 28),
+
+              Center(
+                child: GestureDetector(
+                  onTap: _resendCooldown == 0 ? _onResend : null,
+                  child: _isResending
+                      ? const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.crimson))
+                      : RichText(
+                          text: TextSpan(
                             text: "Didn't receive a code? ",
                             style: TextStyle(
                                 color: AppTheme.textMuted(isDark),
@@ -290,34 +304,29 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
                                 color: _resendCooldown > 0
                                     ? AppTheme.textMuted(isDark)
                                     : AppTheme.crimson,
-                                fontWeight: FontWeight.w700,
-                              ),
-                            )],
-                          )),
-                  ),
+                                fontWeight: FontWeight.w700))])),
                 ),
+              ),
 
-                const SizedBox(height: 16),
-                Center(child: Text('Code expires in 10 minutes',
-                  style: TextStyle(
-                      color: AppTheme.textMuted(isDark).withOpacity(0.5),
-                      fontSize: 12))),
-                const SizedBox(height: 40),
-              ],
-            ),
+              const SizedBox(height: 16),
+              Center(child: Text('Code expires in 10 minutes',
+                style: TextStyle(
+                    color: AppTheme.textMuted(isDark).withOpacity(0.5),
+                    fontSize: 12))),
+              const SizedBox(height: 40),
+            ],
           ),
         ),
-      ],
-    );
+      ),
+    ]);
   }
 
-  // ── FIX: KeyboardListener instead of deprecated RawKeyboardListener ──
   Widget _buildDigitBox(int index) {
     return SizedBox(
       width: 48, height: 58,
       child: KeyboardListener(
-        focusNode: FocusNode(),
-        onKeyEvent: (event) => _onKeyEvent(index, event),
+        focusNode:   FocusNode(),
+        onKeyEvent:  (e) => _onKeyEvent(index, e),
         child: TextFormField(
           controller:      _digitControllers[index],
           focusNode:       _focusNodes[index],
@@ -326,25 +335,29 @@ class _VerificationPageState extends AuthPageState<VerificationPage> {
           keyboardType:    TextInputType.number,
           inputFormatters: [FilteringTextInputFormatter.digitsOnly],
           style: TextStyle(
-            color: AppTheme.textPrimary(isDark),
-            fontSize: 22, fontWeight: FontWeight.w800,
-          ),
+            color:      AppTheme.textPrimary(isDark),
+            fontSize:   22,
+            fontWeight: FontWeight.w800),
           decoration: InputDecoration(
-            counterText: '',
-            filled:      true,
-            fillColor:   AppTheme.card(isDark),
+            counterText:    '',
+            filled:         true,
+            fillColor:      AppTheme.card(isDark),
             contentPadding: EdgeInsets.zero,
             border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                borderSide: BorderSide(color: AppTheme.border(isDark))),
+                borderRadius: BorderRadius.circular(
+                    AppTheme.radiusMedium),
+                borderSide: BorderSide(
+                    color: AppTheme.border(isDark))),
             enabledBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
-                borderSide: BorderSide(color: AppTheme.border(isDark))),
+                borderRadius: BorderRadius.circular(
+                    AppTheme.radiusMedium),
+                borderSide: BorderSide(
+                    color: AppTheme.border(isDark))),
             focusedBorder: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                borderRadius: BorderRadius.circular(
+                    AppTheme.radiusMedium),
                 borderSide: const BorderSide(
-                    color: AppTheme.crimson, width: 2)),
-          ),
+                    color: AppTheme.crimson, width: 2))),
           onChanged: (v) => _onDigitChanged(index, v),
         ),
       ),

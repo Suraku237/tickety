@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'screens/login_page.dart';
 import 'screens/home_page.dart';
+import 'screens/main_shell.dart';
 import 'services/session_service.dart';
 import 'utils/theme_provider.dart';
-import 'utils/app_theme.dart'; 
-
+import 'utils/app_theme.dart';
 
 // =============================================================
 // ENTRY POINT
@@ -12,12 +12,11 @@ import 'utils/app_theme.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ThemeProvider().loadTheme();
-  runApp(const TicketyApp());               // FIX: was QLineApp
+  runApp(const TicketyApp());
 }
 
 // =============================================================
 // TICKETY APP
-// FIX: renamed from QLineApp → TicketyApp
 // =============================================================
 class TicketyApp extends StatelessWidget {
   const TicketyApp({super.key});
@@ -31,10 +30,10 @@ class TicketyApp extends StatelessWidget {
         return MaterialApp(
           title:                      'TICKETY',
           debugShowCheckedModeBanner: false,
-          theme:      AppTheme.lightTheme(),
-          darkTheme:  AppTheme.darkTheme(),
-          themeMode:  isDark ? ThemeMode.dark : ThemeMode.light,
-          home:       const SplashRouter(),
+          theme:     AppTheme.lightTheme(),
+          darkTheme: AppTheme.darkTheme(),
+          themeMode: isDark ? ThemeMode.dark : ThemeMode.light,
+          home:      const SplashRouter(),
         );
       },
     );
@@ -43,7 +42,7 @@ class TicketyApp extends StatelessWidget {
 
 // =============================================================
 // SPLASH ROUTER
-// FIX: animated logo with fade-in + scale instead of bare icon
+// FIX: now routes to MainShell instead of HomePage directly
 // =============================================================
 class SplashRouter extends StatefulWidget {
   const SplashRouter({super.key});
@@ -66,11 +65,9 @@ class _SplashRouterState extends State<SplashRouter>
     super.initState();
     _ctrl = AnimationController(
         vsync: this, duration: const Duration(milliseconds: 800));
-
     _fadeAnim  = CurvedAnimation(parent: _ctrl, curve: Curves.easeOut);
     _scaleAnim = Tween<double>(begin: 0.80, end: 1.0).animate(
         CurvedAnimation(parent: _ctrl, curve: Curves.easeOutBack));
-
     _ctrl.forward();
     _resolveRoute();
   }
@@ -82,17 +79,16 @@ class _SplashRouterState extends State<SplashRouter>
   }
 
   Future<void> _resolveRoute() async {
-    // Give the splash animation time to breathe
     await Future.delayed(const Duration(milliseconds: 1400));
     if (!mounted) return;
 
-    // FIX: restore() now also re-injects the token into ApiService
+    // restore() also re-injects token into ApiService
     final sessionData = await _session.restore();
     if (!mounted) return;
 
     if (sessionData != null) {
       Navigator.pushReplacement(context, _fadeRoute(
-        HomePage(user: AuthUser.fromMap(sessionData)),
+        MainShell(user: AuthUser.fromMap(sessionData)),
       ));
     } else {
       Navigator.pushReplacement(context, _fadeRoute(
@@ -103,7 +99,7 @@ class _SplashRouterState extends State<SplashRouter>
 
   PageRouteBuilder _fadeRoute(Widget page) {
     return PageRouteBuilder(
-      pageBuilder:      (_, __, ___) => page,
+      pageBuilder:        (_, __, ___) => page,
       transitionDuration: const Duration(milliseconds: 400),
       transitionsBuilder: (_, anim, __, child) =>
           FadeTransition(opacity: anim, child: child),
@@ -124,50 +120,35 @@ class _SplashRouterState extends State<SplashRouter>
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                // Logo container
                 Container(
                   width: 80, height: 80,
                   decoration: BoxDecoration(
                     color:        AppTheme.crimson,
                     borderRadius: BorderRadius.circular(22),
-                    boxShadow: [
-                      BoxShadow(
-                        color:      AppTheme.crimson.withOpacity(0.4),
-                        blurRadius: 28,
-                        offset:     const Offset(0, 10),
-                      ),
-                    ],
+                    boxShadow: [BoxShadow(
+                      color:      AppTheme.crimson.withOpacity(0.4),
+                      blurRadius: 28,
+                      offset:     const Offset(0, 10))],
                   ),
                   child: const Icon(Icons.confirmation_num_rounded,
-                      color: Colors.white, size: 40),
-                ),
+                      color: Colors.white, size: 40)),
                 const SizedBox(height: 20),
-
-                // Brand name
                 Text('TICKETY', style: TextStyle(
                   color:      AppTheme.textPrimary(isDark),
                   fontSize:   26,
                   fontWeight: FontWeight.w900,
-                  letterSpacing: 6,
-                )),
+                  letterSpacing: 6)),
                 const SizedBox(height: 8),
-
-                // Tagline
                 Text('Smart Queue Management', style: TextStyle(
                   color:    AppTheme.textMuted(isDark),
                   fontSize: 13,
-                  letterSpacing: 1,
-                )),
+                  letterSpacing: 1)),
                 const SizedBox(height: 48),
-
-                // Loading indicator
                 SizedBox(
                   width: 24, height: 24,
                   child: CircularProgressIndicator(
                     strokeWidth: 2.5,
-                    color:       AppTheme.crimson.withOpacity(0.7),
-                  ),
-                ),
+                    color:       AppTheme.crimson.withOpacity(0.7))),
               ],
             ),
           ),

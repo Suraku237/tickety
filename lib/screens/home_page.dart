@@ -4,7 +4,7 @@ import '../services/api_service.dart';
 import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
-import 'create_tickets_page.dart';
+import 'ticket_scanner.dart';
 
 // =============================================================
 // AUTH USER  (DTO — shared across all pages)
@@ -28,11 +28,72 @@ class AuthUser {
 }
 
 // =============================================================
-// HOME PAGE  —  IndexedStack shell  (3 tabs)
+// DASH TICKET MODEL  (live queue info per ticket)
+// =============================================================
+class DashTicket {
+  final String  id;
+  final String  ticketNumber;
+  final String  serviceName;
+  final String  serviceCategory;
+  final String  status;          // active | suspended | cancelled
+  final int     position;
+  final int     peopleAhead;
+  final int     estimatedMinutes;
+  final String  currentlyServing;
+  final int     guichetNumber;
+  final int     totalInQueue;
+  final bool    hasSwapRequest;
+  final String? swapRequestFrom;
+
+  const DashTicket({
+    required this.id,
+    required this.ticketNumber,
+    required this.serviceName,
+    required this.serviceCategory,
+    required this.status,
+    required this.position,
+    required this.peopleAhead,
+    required this.estimatedMinutes,
+    required this.currentlyServing,
+    required this.guichetNumber,
+    required this.totalInQueue,
+    this.hasSwapRequest  = false,
+    this.swapRequestFrom,
+  });
+
+  DashTicket copyWith({bool? hasSwapRequest}) => DashTicket(
+    id:               id,
+    ticketNumber:     ticketNumber,
+    serviceName:      serviceName,
+    serviceCategory:  serviceCategory,
+    status:           status,
+    position:         position,
+    peopleAhead:      peopleAhead,
+    estimatedMinutes: estimatedMinutes,
+    currentlyServing: currentlyServing,
+    guichetNumber:    guichetNumber,
+    totalInQueue:     totalInQueue,
+    hasSwapRequest:   hasSwapRequest ?? this.hasSwapRequest,
+    swapRequestFrom:  swapRequestFrom,
+  );
+}
+
+// =============================================================
+// HOME PAGE  —  Dashboard tab (Tab 0 inside MainShell)
+// Based on friend's home_page.dart with the following changes:
+//   - _DashboardPage stats renamed: Open→Active, Closed→Suspended,
+//     Urgent→Cancelled
+//   - Recent tickets: replaced _EmptyTickets CTA + _TicketRow with
+//     swipeable DashTicket cards containing full queue info and
+//     inline actions (swap, leave)
+//   - Quick actions: Scan QR / Enter Link open scanner directly
+//   - _SettingsPage tab removed — settings now in MainShell drawer
 // =============================================================
 class HomePage extends StatefulWidget {
   final AuthUser user;
-  const HomePage({super.key, required this.user});
+  final void Function(int)? onNavigate;  // provided by MainShell
+
+  const HomePage({super.key, required this.user, this.onNavigate});
 
   @override
   State<HomePage> createState() => _HomePageState();
@@ -41,12 +102,12 @@ class HomePage extends StatefulWidget {
 class _HomePageState extends State<HomePage>
     with SingleTickerProviderStateMixin {
 
+  final _api     = ApiService();
   final _session = SessionService();
 
   late AnimationController _fadeCtrl;
   late Animation<double>   _fadeAnim;
 
-  int  _tab  = 0;
   bool get _dark => ThemeProvider().isDarkMode;
 
   @override
@@ -70,13 +131,10 @@ class _HomePageState extends State<HomePage>
 
   Future<void> _logout() async {
     await _session.clear();
-    ApiService().clearToken();
+    _api.clearToken();
     if (!mounted) return;
     Navigator.of(context).popUntil((r) => r.isFirst);
   }
-
-  // Allow DashboardView to push the user to the Create tab
-  void _goToCreate() => setState(() => _tab = 1);
 
   @override
   Widget build(BuildContext context) {
@@ -92,120 +150,20 @@ class _HomePageState extends State<HomePage>
         child: Stack(children: [
           const _BgGlows(),
           SafeArea(
-            child: IndexedStack(
-              index: _tab,
-              children: [
-                // Tab 0 — Dashboard (live data)
-                _DashboardPage(
-                  user:         widget.user,
-                  onCreateTap:  _goToCreate,
-                ),
-                // Tab 1 — Create Ticket (fully implemented)
-                CreateTicketPage(user: widget.user),
-                // Tab 2 — Settings (fully implemented)
-                _SettingsPage(
-                  user:     widget.user,
-                  onLogout: _logout,
-                ),
-              ],
+            child: _DashboardPage(
+              user:        widget.user,
+              onNavigate:  widget.onNavigate,
+              onLogout:    _logout,
             ),
           ),
         ]),
       ),
-      bottomNavigationBar: _BottomNav(
-        current: _tab,
-        dark:    _dark,
-        onTap:   (i) => setState(() => _tab = i),
-      ),
     );
   }
 }
 
 // =============================================================
-// BOTTOM NAV
-// =============================================================
-class _BottomNav extends StatelessWidget {
-  final int current;
-  final bool dark;
-  final void Function(int) onTap;
-  const _BottomNav({required this.current, required this.dark, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: BoxDecoration(
-        color:  AppTheme.card(dark),
-        border: Border(top: BorderSide(color: AppTheme.border(dark))),
-        boxShadow: [BoxShadow(
-          color: Colors.black.withOpacity(dark ? 0.25 : 0.06),
-          blurRadius: 16, offset: const Offset(0, -4),
-        )],
-      ),
-      child: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: [
-              _NavItem(icon: Icons.dashboard_rounded,
-                  label: 'Home',    index: 0, current: current, onTap: onTap, dark: dark),
-              _NavItem(icon: Icons.add_circle_rounded,
-                  label: 'Create',  index: 1, current: current, onTap: onTap, dark: dark),
-              _NavItem(icon: Icons.manage_accounts_rounded,
-                  label: 'Profile', index: 2, current: current, onTap: onTap, dark: dark),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _NavItem extends StatelessWidget {
-  final IconData icon;
-  final String   label;
-  final int      index;
-  final int      current;
-  final void Function(int) onTap;
-  final bool     dark;
-
-  const _NavItem({
-    required this.icon, required this.label, required this.index,
-    required this.current, required this.onTap, required this.dark,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final sel   = index == current;
-    final color = sel ? AppTheme.crimson : AppTheme.textMuted(dark);
-
-    return GestureDetector(
-      onTap: () => onTap(index),
-      behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 8),
-        decoration: BoxDecoration(
-          color:        sel ? AppTheme.crimson.withOpacity(0.10) : Colors.transparent,
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Icon(icon, color: color, size: 23),
-          const SizedBox(height: 3),
-          Text(label, style: TextStyle(
-            color:      color,
-            fontSize:   10,
-            fontWeight: sel ? FontWeight.w700 : FontWeight.w500,
-          )),
-        ]),
-      ),
-    );
-  }
-}
-
-// =============================================================
-// BACKGROUND GLOWS  (decorative, kept from original)
+// BACKGROUND GLOWS
 // =============================================================
 class _BgGlows extends StatelessWidget {
   const _BgGlows();
@@ -213,46 +171,35 @@ class _BgGlows extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Stack(children: [
-      Align(
-        alignment: Alignment.topRight,
-        child: Container(
-          width: 260, height: 260,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
+      Align(alignment: Alignment.topRight,
+        child: Container(width: 260, height: 260,
+          decoration: BoxDecoration(shape: BoxShape.circle,
             gradient: RadialGradient(colors: [
-              AppTheme.crimson.withOpacity(0.10), Colors.transparent]),
-          ),
-        ),
-      ),
-      Align(
-        alignment: Alignment.bottomLeft,
-        child: Container(
-          width: 180, height: 180,
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
+              AppTheme.crimson.withOpacity(0.10),
+              Colors.transparent])))),
+      Align(alignment: Alignment.bottomLeft,
+        child: Container(width: 180, height: 180,
+          decoration: BoxDecoration(shape: BoxShape.circle,
             gradient: RadialGradient(colors: [
-              AppTheme.darkCrimson.withOpacity(0.08), Colors.transparent]),
-          ),
-        ),
-      ),
+              AppTheme.darkCrimson.withOpacity(0.08),
+              Colors.transparent])))),
     ]);
   }
 }
 
 // =============================================================
-// ─────────────────────────────────────────────────────────────
-//  DASHBOARD PAGE  (Tab 0)
-//  - Loads real stats from API on mount + pull-to-refresh
-//  - Recent tickets live list
-//  - Create CTA banner
-//  - Quick actions grid wired to real tabs / pages
-// ─────────────────────────────────────────────────────────────
+// DASHBOARD PAGE
 // =============================================================
 class _DashboardPage extends StatefulWidget {
-  final AuthUser   user;
-  final VoidCallback onCreateTap;
+  final AuthUser             user;
+  final void Function(int)?  onNavigate;
+  final VoidCallback         onLogout;
 
-  const _DashboardPage({required this.user, required this.onCreateTap});
+  const _DashboardPage({
+    required this.user,
+    required this.onNavigate,
+    required this.onLogout,
+  });
 
   @override
   State<_DashboardPage> createState() => _DashboardPageState();
@@ -261,19 +208,43 @@ class _DashboardPage extends StatefulWidget {
 class _DashboardPageState extends State<_DashboardPage> {
   final _api = ApiService();
 
-  bool   _loading       = true;
+  bool    _loading      = true;
   String? _error;
-  int    _total         = 0;
-  int    _open          = 0;
-  int    _closed        = 0;
-  int    _urgent        = 0;
-  List<Map<String, dynamic>> _recent = [];
+  int     _total        = 0;
+  int     _active       = 0;
+  int     _suspended    = 0;
+  int     _cancelled    = 0;
+
+  // Swipeable ticket cards
+  List<DashTicket> _tickets = [];
+  int              _cardIndex = 0;
+  late PageController _pageCtrl;
 
   bool get _dark => ThemeProvider().isDarkMode;
+
+  // Placeholder tickets — replaced by real API data when backend ready
+  final List<DashTicket> _placeholder = const [
+    DashTicket(
+      id: '1', ticketNumber: 'A047',
+      serviceName: 'Main Counter', serviceCategory: 'Banking',
+      status: 'active', position: 3, peopleAhead: 2,
+      estimatedMinutes: 12, currentlyServing: 'A045',
+      guichetNumber: 2, totalInQueue: 18,
+    ),
+    DashTicket(
+      id: '2', ticketNumber: 'B012',
+      serviceName: 'Customer Support', serviceCategory: 'Telecom',
+      status: 'active', position: 1, peopleAhead: 0,
+      estimatedMinutes: 3, currentlyServing: 'B011',
+      guichetNumber: 1, totalInQueue: 5,
+      hasSwapRequest: true, swapRequestFrom: 'B015',
+    ),
+  ];
 
   @override
   void initState() {
     super.initState();
+    _pageCtrl = PageController(viewportFraction: 0.92);
     ThemeProvider().addListener(_rebuild);
     _load();
   }
@@ -283,6 +254,7 @@ class _DashboardPageState extends State<_DashboardPage> {
   @override
   void dispose() {
     ThemeProvider().removeListener(_rebuild);
+    _pageCtrl.dispose();
     super.dispose();
   }
 
@@ -291,159 +263,172 @@ class _DashboardPageState extends State<_DashboardPage> {
     try {
       final data = await _api.getTickets(userId: widget.user.userId);
       if (!mounted) return;
-      final tickets = (data['tickets'] as List? ?? []).cast<Map<String,dynamic>>();
+      final raw = (data['tickets'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
       setState(() {
-        _total   = tickets.length;
-        _open    = tickets.where((t) => t['status'] == 'open').length;
-        _closed  = tickets.where((t) => t['status'] == 'closed').length;
-        _urgent  = tickets.where((t) => t['priority'] == 'urgent').length;
-        _recent  = tickets.take(3).toList();
-        _loading = false;
+        _total     = raw.length;
+        _active    = raw.where((t) => t['status'] == 'active').length;
+        _suspended = raw.where((t) => t['status'] == 'suspended').length;
+        _cancelled = raw.where((t) => t['status'] == 'cancelled').length;
+        _loading   = false;
+        _tickets   = _placeholder; // swap for real mapping later
       });
     } catch (_) {
-      if (mounted) setState(() { _loading = false; _error = 'Could not load tickets.'; });
+      if (mounted) setState(() {
+        _loading   = false;
+        _error     = 'Could not load tickets.';
+        _tickets   = _placeholder;
+        _total     = _placeholder.length;
+        _active    = _placeholder
+            .where((t) => t.status == 'active').length;
+      });
     }
   }
 
-  @override
-  Widget build(BuildContext context) {
-    return RefreshIndicator(
-      color:    AppTheme.crimson,
-      onRefresh: _load,
-      child: SingleChildScrollView(
-        physics: const AlwaysScrollableScrollPhysics(),
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const SizedBox(height: 22),
+  // ── Ticket actions ───────────────────────────────────────────
 
-          // ── Top bar ──
-          _TopBar(user: widget.user, dark: _dark),
-          const SizedBox(height: 26),
-
-          // ── Greeting ──
-          _Greeting(user: widget.user, dark: _dark),
-          const SizedBox(height: 26),
-
-          // ── Create CTA ──
-          _CreateBanner(dark: _dark, onTap: widget.onCreateTap),
-          const SizedBox(height: 26),
-
-          // ── Stats ──
-          if (_error != null)
-            _ErrorStrip(message: _error!, dark: _dark)
-          else
-            _StatsRow(
-              dark: _dark, loading: _loading,
-              total: _total, open: _open,
-              closed: _closed, urgent: _urgent,
-            ),
-          const SizedBox(height: 26),
-
-          // ── Recent tickets ──
-          _SectionHeader(
-            title: 'Recent Tickets', dark: _dark,
-            action: _total > 0 ? 'See all' : null,
-            onAction: () {},
-          ),
-          const SizedBox(height: 12),
-          _loading
-              ? _SkeletonList(dark: _dark)
-              : _recent.isEmpty
-                  ? _EmptyTickets(dark: _dark, onTap: widget.onCreateTap)
-                  : Column(children: _recent
-                      .map((t) => _TicketRow(ticket: t, dark: _dark))
-                      .toList()),
-          const SizedBox(height: 26),
-
-          // ── Quick actions ──
-          _SectionHeader(title: 'Quick Actions', dark: _dark),
-          const SizedBox(height: 12),
-          _QuickGrid(dark: _dark, onCreateTap: widget.onCreateTap),
-
-          const SizedBox(height: 28),
-          Center(child: Text('TICKETY v1.0  ·  Smart Queue Management',
-            style: TextStyle(
-              color:    AppTheme.textMuted(_dark).withOpacity(0.35),
-              fontSize: 11,
-            ))),
-          const SizedBox(height: 20),
-        ]),
+  void _onLeaveQueue(DashTicket ticket) {
+    showDialog(
+      context: context,
+      builder: (_) => _ConfirmDialog(
+        dark:    _dark,
+        title:   'Leave Queue',
+        message: 'Leave the queue at ${ticket.serviceName}? '
+                 'This cannot be undone.',
+        confirmLabel: 'Leave',
+        onConfirm: () {
+          setState(() =>
+              _tickets.removeWhere((t) => t.id == ticket.id));
+          _showSnack(
+              'Left queue at ${ticket.serviceName}',
+              AppTheme.crimson);
+        },
       ),
     );
   }
-}
 
-// ── Top bar: brand + theme toggle + avatar ──
-class _TopBar extends StatelessWidget {
-  final AuthUser user;
-  final bool dark;
-  const _TopBar({required this.user, required this.dark});
+  void _onRequestSwap(DashTicket ticket) {
+    showModalBottomSheet(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      builder: (_) => _SwapPickerSheet(
+        dark:         _dark,
+        sourceTicket: ticket,
+        onSend: (targetTicket) {
+          Navigator.pop(context);
+          _showSnack(
+              'Swap request sent to $targetTicket',
+              const Color(0xFFFFA500));
+        },
+      ),
+    );
+  }
+
+  void _onAcceptSwap(DashTicket ticket) {
+    setState(() {
+      final i = _tickets.indexWhere((t) => t.id == ticket.id);
+      if (i != -1) {
+        _tickets[i] = DashTicket(
+          id:               ticket.id,
+          ticketNumber:     ticket.ticketNumber,
+          serviceName:      ticket.serviceName,
+          serviceCategory:  ticket.serviceCategory,
+          status:           ticket.status,
+          position:         ticket.position,
+          peopleAhead:      ticket.peopleAhead,
+          estimatedMinutes: ticket.estimatedMinutes,
+          currentlyServing: ticket.currentlyServing,
+          guichetNumber:    ticket.guichetNumber,
+          totalInQueue:     ticket.totalInQueue,
+          hasSwapRequest:   false,
+        );
+      }
+    });
+    _showSnack('Swap accepted!', Colors.green);
+  }
+
+  void _onRejectSwap(DashTicket ticket) {
+    setState(() {
+      final i = _tickets.indexWhere((t) => t.id == ticket.id);
+      if (i != -1) {
+        _tickets[i] = DashTicket(
+          id:               ticket.id,
+          ticketNumber:     ticket.ticketNumber,
+          serviceName:      ticket.serviceName,
+          serviceCategory:  ticket.serviceCategory,
+          status:           ticket.status,
+          position:         ticket.position,
+          peopleAhead:      ticket.peopleAhead,
+          estimatedMinutes: ticket.estimatedMinutes,
+          currentlyServing: ticket.currentlyServing,
+          guichetNumber:    ticket.guichetNumber,
+          totalInQueue:     ticket.totalInQueue,
+          hasSwapRequest:   false,
+        );
+      }
+    });
+    _showSnack('Swap rejected.', AppTheme.crimson);
+  }
+
+  void _showSnack(String msg, Color color) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content:         Text(msg),
+      backgroundColor: color,
+      behavior:        SnackBarBehavior.floating,
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(12)),
+    ));
+  }
+
+  // ── Scanner helpers ──────────────────────────────────────────
+
+  void _openScanner() {
+    showModalBottomSheet(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      builder: (_) => QrScannerSheet(
+        isDark:   _dark,
+        onResult: (code) {
+          Navigator.pop(context);
+          _onCodeReceived(code);
+        },
+      ),
+    );
+  }
+
+  void _openLinkInput() {
+    showModalBottomSheet(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      builder: (_) => LinkInputSheet(
+        isDark:   _dark,
+        onResult: (code) {
+          Navigator.pop(context);
+          _onCodeReceived(code);
+        },
+      ),
+    );
+  }
+
+  void _onCodeReceived(String code) {
+    // TODO: call backend to issue ticket for this service code
+    _showSnack('Ticket request sent!', Colors.green);
+    _load();
+  }
+
+  // ── Initials helper ──────────────────────────────────────────
 
   String _initials() {
-    if (user.username.isEmpty) return '?';
-    final p = user.username.trim().split(' ');
-    return (p.length >= 2 ? '${p[0][0]}${p[1][0]}' : user.username[0])
+    if (widget.user.username.isEmpty) return '?';
+    final p = widget.user.username.trim().split(' ');
+    return (p.length >= 2
+            ? '${p[0][0]}${p[1][0]}'
+            : widget.user.username[0])
         .toUpperCase();
   }
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(children: [
-      // Brand
-      Container(
-        width: 32, height: 32,
-        decoration: BoxDecoration(
-          color: AppTheme.crimson, borderRadius: BorderRadius.circular(8)),
-        child: const Icon(Icons.confirmation_num_rounded,
-            color: Colors.white, size: 16),
-      ),
-      const SizedBox(width: 9),
-      Text('TICKETY', style: TextStyle(
-        color: AppTheme.textPrimary(dark), fontSize: 17,
-        fontWeight: FontWeight.w800, letterSpacing: 4,
-      )),
-
-      const Spacer(),
-
-      // Theme toggle
-      GestureDetector(
-        onTap: () => ThemeProvider().toggleTheme(),
-        child: Container(
-          width: 36, height: 36,
-          decoration: BoxDecoration(
-            color: AppTheme.card(dark), borderRadius: BorderRadius.circular(9),
-            border: Border.all(color: AppTheme.border(dark)),
-          ),
-          child: Icon(
-            dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-            color: dark ? const Color(0xFFFFC107) : const Color(0xFF555555),
-            size: 16,
-          ),
-        ),
-      ),
-      const SizedBox(width: 10),
-
-      // Avatar
-      Container(
-        width: 36, height: 36,
-        decoration: BoxDecoration(
-          color:  AppTheme.crimson.withOpacity(0.14),
-          shape:  BoxShape.circle,
-          border: Border.all(color: AppTheme.crimson.withOpacity(0.3)),
-        ),
-        child: Center(child: Text(_initials(), style: const TextStyle(
-          color: AppTheme.crimson, fontSize: 13, fontWeight: FontWeight.w900,
-        ))),
-      ),
-    ]);
-  }
-}
-
-// ── Greeting ──
-class _Greeting extends StatelessWidget {
-  final AuthUser user;
-  final bool dark;
-  const _Greeting({required this.user, required this.dark});
 
   String _greet() {
     final h = DateTime.now().hour;
@@ -452,36 +437,307 @@ class _Greeting extends StatelessWidget {
     return 'Good evening';
   }
 
+  // ── Build ────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-      Text(_greet(), style: TextStyle(
-        color: AppTheme.textMuted(dark), fontSize: 14, fontWeight: FontWeight.w500)),
-      const SizedBox(height: 4),
-      Text(user.username.isNotEmpty ? user.username : 'User',
-        style: TextStyle(
-          color: AppTheme.textPrimary(dark), fontSize: 30,
-          fontWeight: FontWeight.w900, letterSpacing: -0.8),
-        overflow: TextOverflow.ellipsis),
-      const SizedBox(height: 4),
-      Row(children: [
-        Container(
-          width: 7, height: 7,
-          decoration: const BoxDecoration(
-            color: Colors.green, shape: BoxShape.circle)),
-        const SizedBox(width: 6),
-        Text('Account active', style: TextStyle(
-          color: AppTheme.textMuted(dark), fontSize: 12)),
-      ]),
+    return RefreshIndicator(
+      color:     AppTheme.crimson,
+      onRefresh: _load,
+      child: SingleChildScrollView(
+        physics: const AlwaysScrollableScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const SizedBox(height: 22),
+
+            // ── Top bar ──────────────────────────────────
+            _TopBar(
+              user:       widget.user,
+              dark:       _dark,
+              initials:   _initials(),
+              onSettings: () => _openSettingsDrawer(context),
+            ),
+            const SizedBox(height: 26),
+
+            // ── Greeting ─────────────────────────────────
+            _Greeting(
+                user: widget.user, dark: _dark, greet: _greet()),
+            const SizedBox(height: 26),
+
+            // ── Create ticket banner ──────────────────────
+            _CreateBanner(
+              dark:        _dark,
+              onScanQr:    _openScanner,
+              onEnterLink: _openLinkInput,
+            ),
+            const SizedBox(height: 26),
+
+            // ── Stats ─────────────────────────────────────
+            if (_error != null)
+              _ErrorStrip(message: _error!, dark: _dark)
+            else
+              _StatsRow(
+                dark:      _dark,
+                loading:   _loading,
+                total:     _total,
+                active:    _active,
+                suspended: _suspended,
+                cancelled: _cancelled,
+              ),
+            const SizedBox(height: 26),
+
+            // ── Recent tickets ────────────────────────────
+            _SectionHeader(title: 'Recent Tickets', dark: _dark),
+            const SizedBox(height: 12),
+            _loading
+                ? _SkeletonCard(dark: _dark)
+                : _buildTicketSection(),
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ── Recent tickets section ───────────────────────────────────
+  Widget _buildTicketSection() {
+    if (_tickets.isEmpty) {
+      return Container(
+        width:   double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 36),
+        decoration: BoxDecoration(
+          color:        AppTheme.card(_dark),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: AppTheme.border(_dark))),
+        child: Column(children: [
+          Icon(Icons.confirmation_num_outlined,
+              color: AppTheme.textMuted(_dark).withOpacity(0.35),
+              size: 38),
+          const SizedBox(height: 12),
+          Text('No tickets yet', style: TextStyle(
+            color:      AppTheme.textPrimary(_dark),
+            fontSize:   15,
+            fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('Use the banner above to get your first ticket',
+            style: TextStyle(
+                color: AppTheme.textMuted(_dark), fontSize: 12)),
+        ]),
+      );
+    }
+
+    return Column(children: [
+      // Page indicator dots
+      if (_tickets.length > 1) ...[
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: List.generate(_tickets.length, (i) {
+            final active = i == _cardIndex;
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 250),
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              width:  active ? 20 : 6,
+              height: 6,
+              decoration: BoxDecoration(
+                color: active
+                    ? AppTheme.crimson
+                    : AppTheme.border(_dark),
+                borderRadius: BorderRadius.circular(3)));
+          }),
+        ),
+        const SizedBox(height: 10),
+      ],
+
+      // Swipeable cards — fills remaining screen space
+      LayoutBuilder(
+        builder: (context, constraints) {
+          // Use remaining viewport height or a comfortable minimum
+          final h = constraints.maxHeight.isInfinite ? 400.0
+              : constraints.maxHeight.clamp(320.0, 600.0);
+          return SizedBox(
+            height: h,
+            child: PageView.builder(
+              controller:    _pageCtrl,
+              itemCount:     _tickets.length,
+              onPageChanged: (i) => setState(() => _cardIndex = i),
+              itemBuilder:   (_, i) => Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: _DashTicketCard(
+                  ticket:         _tickets[i],
+                  dark:           _dark,
+                  onLeave:        () => _onLeaveQueue(_tickets[i]),
+                  onRequestSwap:  () => _onRequestSwap(_tickets[i]),
+                  onAcceptSwap:   () => _onAcceptSwap(_tickets[i]),
+                  onRejectSwap:   () => _onRejectSwap(_tickets[i]),
+                ),
+              ),
+            ),
+          );
+        },
+      ),
+    ]);
+  }
+
+  // ── Settings drawer ──────────────────────────────────────────
+  void _openSettingsDrawer(BuildContext context) {
+    showGeneralDialog(
+      context:            context,
+      barrierDismissible: true,
+      barrierLabel:       'Settings',
+      barrierColor:       Colors.black54,
+      transitionDuration: const Duration(milliseconds: 280),
+      pageBuilder: (_, __, ___) => Align(
+        alignment: Alignment.centerRight,
+        child: Material(
+          color: Colors.transparent,
+          child: _SettingsDrawer(
+            dark:     _dark,
+            user:     widget.user,
+            onLogout: widget.onLogout),
+        ),
+      ),
+      transitionBuilder: (_, anim, __, child) => SlideTransition(
+        position: Tween<Offset>(
+          begin: const Offset(1, 0), end: Offset.zero,
+        ).animate(CurvedAnimation(
+            parent: anim, curve: Curves.easeOutCubic)),
+        child: child),
+    );
+  }
+}
+
+// =============================================================
+// TOP BAR
+// =============================================================
+class _TopBar extends StatelessWidget {
+  final AuthUser     user;
+  final bool         dark;
+  final String       initials;
+  final VoidCallback onSettings;
+
+  const _TopBar({
+    required this.user,
+    required this.dark,
+    required this.initials,
+    required this.onSettings,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(children: [
+      Container(
+        width: 32, height: 32,
+        decoration: BoxDecoration(
+          color:        AppTheme.crimson,
+          borderRadius: BorderRadius.circular(8)),
+        child: const Icon(Icons.confirmation_num_rounded,
+            color: Colors.white, size: 16)),
+      const SizedBox(width: 9),
+      Text('TICKETY', style: TextStyle(
+        color:      AppTheme.textPrimary(dark),
+        fontSize:   17,
+        fontWeight: FontWeight.w800,
+        letterSpacing: 4)),
+      const Spacer(),
+
+      // Theme toggle
+      GestureDetector(
+        onTap: () => ThemeProvider().toggleTheme(),
+        child: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color:        AppTheme.card(dark),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: AppTheme.border(dark))),
+          child: Icon(
+            dark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
+            color: dark
+                ? const Color(0xFFFFC107)
+                : const Color(0xFF555555),
+            size: 16))),
+      const SizedBox(width: 10),
+
+      // Settings button
+      GestureDetector(
+        onTap: onSettings,
+        child: Container(
+          width: 36, height: 36,
+          decoration: BoxDecoration(
+            color:        AppTheme.card(dark),
+            borderRadius: BorderRadius.circular(9),
+            border: Border.all(color: AppTheme.border(dark))),
+          child: Icon(Icons.settings_rounded,
+              color: AppTheme.textMuted(dark), size: 16))),
+      const SizedBox(width: 10),
+
+      // Avatar
+      Container(
+        width: 36, height: 36,
+        decoration: BoxDecoration(
+          color:  AppTheme.crimson.withOpacity(0.14),
+          shape:  BoxShape.circle,
+          border: Border.all(
+              color: AppTheme.crimson.withOpacity(0.3))),
+        child: Center(child: Text(initials, style: const TextStyle(
+          color:      AppTheme.crimson,
+          fontSize:   13,
+          fontWeight: FontWeight.w900)))),
     ]);
   }
 }
 
-// ── Create CTA banner ──
+// =============================================================
+// GREETING
+// =============================================================
+class _Greeting extends StatelessWidget {
+  final AuthUser user;
+  final bool     dark;
+  final String   greet;
+  const _Greeting({
+      required this.user, required this.dark, required this.greet});
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(greet, style: TextStyle(
+          color:      AppTheme.textMuted(dark),
+          fontSize:   14,
+          fontWeight: FontWeight.w500)),
+        const SizedBox(height: 4),
+        Text(user.username.isNotEmpty ? user.username : 'User',
+          style: TextStyle(
+            color:      AppTheme.textPrimary(dark),
+            fontSize:   30,
+            fontWeight: FontWeight.w900,
+            letterSpacing: -0.8),
+          overflow: TextOverflow.ellipsis),
+        const SizedBox(height: 4),
+        Row(children: [
+          Container(width: 7, height: 7,
+            decoration: const BoxDecoration(
+              color: Colors.green, shape: BoxShape.circle)),
+          const SizedBox(width: 6),
+          Text('Account active', style: TextStyle(
+            color: AppTheme.textMuted(dark), fontSize: 12)),
+        ]),
+      ]);
+  }
+}
+
+// =============================================================
+// CREATE BANNER  (two direct action buttons)
+// =============================================================
 class _CreateBanner extends StatefulWidget {
-  final bool dark;
-  final VoidCallback onTap;
-  const _CreateBanner({required this.dark, required this.onTap});
+  final bool         dark;
+  final VoidCallback onScanQr;
+  final VoidCallback onEnterLink;
+  const _CreateBanner({
+      required this.dark,
+      required this.onScanQr,
+      required this.onEnterLink});
 
   @override
   State<_CreateBanner> createState() => _CreateBannerState();
@@ -495,7 +751,8 @@ class _CreateBannerState extends State<_CreateBanner>
   @override
   void initState() {
     super.initState();
-    _c = AnimationController(vsync: this, duration: const Duration(milliseconds: 120));
+    _c = AnimationController(vsync: this,
+        duration: const Duration(milliseconds: 120));
     _s = Tween<double>(begin: 1.0, end: 0.97)
         .animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut));
   }
@@ -505,76 +762,108 @@ class _CreateBannerState extends State<_CreateBanner>
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown:   (_) => _c.forward(),
-      onTapUp:     (_) { _c.reverse(); widget.onTap(); },
-      onTapCancel: ()  => _c.reverse(),
-      child: AnimatedBuilder(
-        animation: _s,
-        builder: (_, child) => Transform.scale(scale: _s.value, child: child),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppTheme.crimson, AppTheme.darkCrimson],
-              begin: Alignment.topLeft, end: Alignment.bottomRight,
-            ),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [BoxShadow(
-              color:   AppTheme.crimson.withOpacity(0.30),
-              blurRadius: 20, offset: const Offset(0, 8),
-            )],
-          ),
-          child: Row(children: [
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withOpacity(0.2),
-                    borderRadius: BorderRadius.circular(6),
-                  ),
-                  child: const Text('NEW', style: TextStyle(
-                    color: Colors.white, fontSize: 10,
-                    fontWeight: FontWeight.w800, letterSpacing: 2,
-                  )),
-                ),
-                const SizedBox(height: 10),
-                const Text('Create a Ticket', style: TextStyle(
-                  color: Colors.white, fontSize: 20, fontWeight: FontWeight.w900,
-                )),
-                const SizedBox(height: 4),
-                Text('Scan a QR code or enter a service link',
-                  style: TextStyle(
-                    color: Colors.white.withOpacity(0.75), fontSize: 13)),
-              ],
-            )),
-            Container(
-              width: 50, height: 50,
-              decoration: BoxDecoration(
-                color: Colors.white.withOpacity(0.18),
-                borderRadius: BorderRadius.circular(13),
-              ),
-              child: const Icon(Icons.qr_code_scanner_rounded,
-                  color: Colors.white, size: 24),
-            ),
-          ]),
+    return AnimatedBuilder(
+      animation: _s,
+      builder: (_, child) =>
+          Transform.scale(scale: _s.value, child: child),
+      child: Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            colors: [AppTheme.crimson, AppTheme.darkCrimson],
+            begin: Alignment.topLeft, end: Alignment.bottomRight),
+          borderRadius: BorderRadius.circular(18),
+          boxShadow: [BoxShadow(
+            color:      AppTheme.crimson.withOpacity(0.30),
+            blurRadius: 20, offset: const Offset(0, 8))],
         ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color:        Colors.white.withOpacity(0.2),
+                  borderRadius: BorderRadius.circular(6)),
+                child: const Text('GET A TICKET', style: TextStyle(
+                  color:      Colors.white,
+                  fontSize:   10,
+                  fontWeight: FontWeight.w800,
+                  letterSpacing: 2))),
+            ]),
+            const SizedBox(height: 10),
+            const Text('Join a Queue', style: TextStyle(
+              color: Colors.white, fontSize: 20,
+              fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            Text('Scan a QR code or enter a service link',
+              style: TextStyle(
+                  color: Colors.white.withOpacity(0.75),
+                  fontSize: 13)),
+            const SizedBox(height: 16),
+
+            // Two direct action buttons
+            Row(children: [
+              Expanded(child: GestureDetector(
+                onTapDown:   (_) => _c.forward(),
+                onTapUp:     (_) { _c.reverse(); widget.onScanQr(); },
+                onTapCancel: ()  => _c.reverse(),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color:        Colors.white,
+                    borderRadius: BorderRadius.circular(12)),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.qr_code_scanner_rounded,
+                          color: AppTheme.crimson, size: 18),
+                      SizedBox(width: 8),
+                      Text('Scan QR', style: TextStyle(
+                        color:      AppTheme.crimson,
+                        fontSize:   13,
+                        fontWeight: FontWeight.w800)),
+                    ])))),
+              const SizedBox(width: 10),
+              Expanded(child: GestureDetector(
+                onTap: widget.onEnterLink,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  decoration: BoxDecoration(
+                    color:        Colors.white.withOpacity(0.2),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Colors.white.withOpacity(0.4))),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.link_rounded,
+                          color: Colors.white, size: 18),
+                      SizedBox(width: 8),
+                      Text('Enter Link', style: TextStyle(
+                        color:      Colors.white,
+                        fontSize:   13,
+                        fontWeight: FontWeight.w800)),
+                    ])))),
+            ]),
+          ]),
       ),
     );
   }
 }
 
-// ── Stats row ──
+// =============================================================
+// STATS ROW  — Total / Active / Suspended / Cancelled
+// =============================================================
 class _StatsRow extends StatelessWidget {
   final bool dark, loading;
-  final int  total, open, closed, urgent;
+  final int  total, active, suspended, cancelled;
   const _StatsRow({
-    required this.dark, required this.loading,
-    required this.total, required this.open,
-    required this.closed, required this.urgent,
+    required this.dark,    required this.loading,
+    required this.total,   required this.active,
+    required this.suspended, required this.cancelled,
   });
 
   @override
@@ -585,19 +874,21 @@ class _StatsRow extends StatelessWidget {
           margin: EdgeInsets.only(right: i < 3 ? 10 : 0),
           height: 80,
           decoration: BoxDecoration(
-            color: AppTheme.card(dark),
-            borderRadius: BorderRadius.circular(14)),
-        ),
-      )));
+            color:        AppTheme.card(dark),
+            borderRadius: BorderRadius.circular(14))))));
     }
     return Row(children: [
-      _StatCard(label: 'Total',  value: total,  color: AppTheme.textMuted(dark), dark: dark),
+      _StatCard(label: 'Total',     value: total,
+          color: AppTheme.textMuted(dark), dark: dark),
       const SizedBox(width: 10),
-      _StatCard(label: 'Open',   value: open,   color: Colors.blue,   dark: dark),
+      _StatCard(label: 'Active',    value: active,
+          color: Colors.green,           dark: dark),
       const SizedBox(width: 10),
-      _StatCard(label: 'Closed', value: closed, color: Colors.green,  dark: dark),
+      _StatCard(label: 'Suspended', value: suspended,
+          color: const Color(0xFFFFA500), dark: dark),
       const SizedBox(width: 10),
-      _StatCard(label: 'Urgent', value: urgent, color: AppTheme.crimson, dark: dark),
+      _StatCard(label: 'Cancelled', value: cancelled,
+          color: AppTheme.crimson,        dark: dark),
     ]);
   }
 }
@@ -612,180 +903,308 @@ class _StatCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Expanded(
-      child: Container(
-        padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
-        decoration: BoxDecoration(
-          color:        AppTheme.card(dark),
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: AppTheme.border(dark)),
-        ),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    return Expanded(child: Container(
+      padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 10),
+      decoration: BoxDecoration(
+        color:        AppTheme.card(dark),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: AppTheme.border(dark))),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Text(value.toString(), style: TextStyle(
             color: color, fontSize: 22, fontWeight: FontWeight.w900)),
           const SizedBox(height: 2),
           Text(label, style: TextStyle(
-            color: AppTheme.textMuted(dark), fontSize: 11,
+            color:      AppTheme.textMuted(dark),
+            fontSize:   11,
             fontWeight: FontWeight.w600)),
-        ]),
-      ),
-    );
+        ])));
   }
 }
 
-// ── Section header ──
+// =============================================================
+// DASHBOARD TICKET CARD  (full queue info + inline actions)
+// =============================================================
+class _DashTicketCard extends StatelessWidget {
+  final DashTicket   ticket;
+  final bool         dark;
+  final VoidCallback onLeave;
+  final VoidCallback onRequestSwap;
+  final VoidCallback onAcceptSwap;
+  final VoidCallback onRejectSwap;
+
+  const _DashTicketCard({
+    required this.ticket,
+    required this.dark,
+    required this.onLeave,
+    required this.onRequestSwap,
+    required this.onAcceptSwap,
+    required this.onRejectSwap,
+  });
+
+  Color  _sc() => ticket.status == 'suspended'
+      ? const Color(0xFFFFA500)
+      : ticket.status == 'cancelled'
+          ? AppTheme.crimson : Colors.green;
+
+  String _sl() => ticket.status == 'suspended'
+      ? 'SUSPENDED'
+      : ticket.status == 'cancelled' ? 'CANCELLED' : 'ACTIVE';
+
+  @override
+  Widget build(BuildContext context) {
+    final sc = _sc();
+
+    return Container(
+      decoration: BoxDecoration(
+        color:        AppTheme.card(dark),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(
+          color: ticket.hasSwapRequest
+              ? const Color(0xFFFFA500).withOpacity(0.5)
+              : AppTheme.border(dark),
+          width: ticket.hasSwapRequest ? 1.5 : 1)),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+
+            // Service + status
+            Row(children: [
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(ticket.serviceCategory.toUpperCase(),
+                    style: TextStyle(
+                      color:      AppTheme.textMuted(dark),
+                      fontSize:   9,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5)),
+                  const SizedBox(height: 2),
+                  Text(ticket.serviceName, style: TextStyle(
+                    color:      AppTheme.textPrimary(dark),
+                    fontSize:   14,
+                    fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis),
+                ])),
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color:        sc.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: sc.withOpacity(0.3))),
+                child: Text(_sl(), style: TextStyle(
+                  color: sc, fontSize: 9,
+                  fontWeight: FontWeight.w800, letterSpacing: 1))),
+            ]),
+
+            const SizedBox(height: 12),
+
+            // Ticket number + queue stats
+            Row(children: [
+              // Big ticket number
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color:        sc.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: sc.withOpacity(0.2))),
+                child: Text(ticket.ticketNumber, style: TextStyle(
+                  color:      sc,
+                  fontSize:   22,
+                  fontWeight: FontWeight.w900,
+                  letterSpacing: 2))),
+              const SizedBox(width: 14),
+              // Info column
+              Expanded(child: Column(children: [
+                _row(dark, Icons.people_outline_rounded,
+                    'Ahead',    '${ticket.peopleAhead}'),
+                const SizedBox(height: 5),
+                _row(dark, Icons.group_outlined,
+                    'In Queue', '${ticket.totalInQueue}'),
+                const SizedBox(height: 5),
+                _row(dark, Icons.record_voice_over_rounded,
+                    'Serving',  ticket.currentlyServing),
+                const SizedBox(height: 5),
+                _row(dark, Icons.door_front_door_outlined,
+                    'Guichet',  '${ticket.guichetNumber}'),
+                const SizedBox(height: 5),
+                _row(dark, Icons.timer_outlined,
+                    'Est. wait', '~${ticket.estimatedMinutes} min',
+                    highlight: true),
+              ])),
+            ]),
+
+            const SizedBox(height: 12),
+
+            // Queue progress bar
+            Column(crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Text('Queue progress', style: TextStyle(
+                      color:    AppTheme.textMuted(dark),
+                      fontSize: 11)),
+                    Text(
+                      '${ticket.totalInQueue - ticket.peopleAhead} / ${ticket.totalInQueue} served',
+                      style: TextStyle(
+                        color:    AppTheme.textMuted(dark),
+                        fontSize: 11)),
+                  ],
+                ),
+                const SizedBox(height: 6),
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(4),
+                  child: LinearProgressIndicator(
+                    value: ticket.totalInQueue > 0
+                        ? (ticket.totalInQueue - ticket.peopleAhead) /
+                          ticket.totalInQueue
+                        : 0,
+                    minHeight:       6,
+                    backgroundColor: AppTheme.border(dark),
+                    valueColor: const AlwaysStoppedAnimation<Color>(
+                        AppTheme.crimson))),
+              ]),
+
+            const SizedBox(height: 12),
+
+            // Swap request or action buttons
+            if (ticket.hasSwapRequest) ...[
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color:        const Color(0xFFFFA500).withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(
+                      color: const Color(0xFFFFA500).withOpacity(0.3))),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Icon(Icons.swap_horiz_rounded,
+                          color: Color(0xFFFFA500), size: 14),
+                      const SizedBox(width: 6),
+                      Text(
+                        'Swap request from ${ticket.swapRequestFrom}',
+                        style: const TextStyle(
+                          color:      Color(0xFFFFA500),
+                          fontSize:   12,
+                          fontWeight: FontWeight.w600)),
+                    ]),
+                    const SizedBox(height: 8),
+                    Row(children: [
+                      Expanded(child: _actionBtn(
+                        label: 'Accept',
+                        color: Colors.green,
+                        onTap: onAcceptSwap)),
+                      const SizedBox(width: 8),
+                      Expanded(child: _actionBtn(
+                        label: 'Reject',
+                        color: AppTheme.crimson,
+                        onTap: onRejectSwap)),
+                    ]),
+                  ])),
+            ] else ...[
+              Row(children: [
+                Expanded(child: _actionBtn(
+                  label: 'Request Swap',
+                  color: const Color(0xFF2196F3),
+                  onTap: onRequestSwap)),
+                const SizedBox(width: 8),
+                Expanded(child: _actionBtn(
+                  label: 'Leave Queue',
+                  color: AppTheme.crimson,
+                  onTap: onLeave)),
+              ]),
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _row(bool dark, IconData icon, String label, String value,
+      {bool highlight = false}) {
+    return Row(children: [
+      Icon(icon,
+          color: highlight
+              ? AppTheme.crimson : AppTheme.textMuted(dark),
+          size: 12),
+      const SizedBox(width: 5),
+      Text(label, style: TextStyle(
+          color: AppTheme.textMuted(dark), fontSize: 11)),
+      const Spacer(),
+      Text(value, style: TextStyle(
+        color: highlight
+            ? AppTheme.crimson : AppTheme.textPrimary(dark),
+        fontSize: 11, fontWeight: FontWeight.w700)),
+    ]);
+  }
+
+  Widget _actionBtn({
+    required String       label,
+    required Color        color,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        decoration: BoxDecoration(
+          color:        color.withOpacity(0.08),
+          borderRadius: BorderRadius.circular(9),
+          border: Border.all(color: color.withOpacity(0.3))),
+        child: Center(child: Text(label, style: TextStyle(
+          color:      color,
+          fontSize:   12,
+          fontWeight: FontWeight.w700)))));
+  }
+}
+
+// =============================================================
+// SECTION HEADER
+// =============================================================
 class _SectionHeader extends StatelessWidget {
   final String title;
   final bool   dark;
-  final String?    action;
-  final VoidCallback? onAction;
-  const _SectionHeader({required this.title, required this.dark,
-      this.action, this.onAction});
+  const _SectionHeader({required this.title, required this.dark});
 
   @override
   Widget build(BuildContext context) {
-    return Row(mainAxisAlignment: MainAxisAlignment.spaceBetween, children: [
-      Text(title, style: TextStyle(
-        color: AppTheme.textPrimary(dark), fontSize: 16,
-        fontWeight: FontWeight.w800)),
-      if (action != null)
-        GestureDetector(
-          onTap: onAction,
-          child: Text(action!, style: const TextStyle(
-            color: AppTheme.crimson, fontSize: 13, fontWeight: FontWeight.w700)),
-        ),
-    ]);
+    return Text(title, style: TextStyle(
+      color:      AppTheme.textPrimary(dark),
+      fontSize:   16,
+      fontWeight: FontWeight.w800));
   }
 }
 
-// ── Recent ticket row ──
-class _TicketRow extends StatelessWidget {
-  final Map<String, dynamic> ticket;
+// =============================================================
+// SKELETON CARD  (loading placeholder)
+// =============================================================
+class _SkeletonCard extends StatelessWidget {
   final bool dark;
-  const _TicketRow({required this.ticket, required this.dark});
-
-  Color _pc(String p) => switch (p.toLowerCase()) {
-    'urgent' => AppTheme.crimson, 'high' => Colors.orange,
-    'medium' => Colors.blue,     _      => Colors.green,
-  };
-
-  Color _sc(String s) => switch (s.toLowerCase()) {
-    'open'    => Colors.blue,  'pending' => Colors.orange,
-    'closed'  => Colors.green, _         => Colors.grey,
-  };
+  const _SkeletonCard({required this.dark});
 
   @override
   Widget build(BuildContext context) {
-    final title    = ticket['title']    ?? 'Untitled';
-    final status   = ticket['status']   ?? 'open';
-    final priority = ticket['priority'] ?? 'low';
-    final service  = ticket['service']  ?? '';
-
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.all(14),
+      height: 240,
       decoration: BoxDecoration(
         color:        AppTheme.card(dark),
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.border(dark)),
-      ),
-      child: Row(children: [
-        Container(
-          width: 8, height: 44,
-          decoration: BoxDecoration(
-            color: _pc(priority), borderRadius: BorderRadius.circular(4)),
-        ),
-        const SizedBox(width: 12),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(
-              color: AppTheme.textPrimary(dark),
-              fontSize: 14, fontWeight: FontWeight.w700),
-              overflow: TextOverflow.ellipsis),
-            if (service.isNotEmpty)
-              Text(service, style: TextStyle(
-                color: AppTheme.textMuted(dark), fontSize: 12)),
-          ],
-        )),
-        const SizedBox(width: 8),
-        Container(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-          decoration: BoxDecoration(
-            color:        _sc(status).withOpacity(0.12),
-            borderRadius: BorderRadius.circular(6),
-          ),
-          child: Text(status[0].toUpperCase() + status.substring(1),
-            style: TextStyle(color: _sc(status), fontSize: 10,
-                fontWeight: FontWeight.w800)),
-        ),
-      ]),
-    );
+        borderRadius: BorderRadius.circular(20)));
   }
 }
 
-// ── Empty state ──
-class _EmptyTickets extends StatelessWidget {
-  final bool dark;
-  final VoidCallback onTap;
-  const _EmptyTickets({required this.dark, required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(vertical: 32),
-      decoration: BoxDecoration(
-        color: AppTheme.card(dark), borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: AppTheme.border(dark)),
-      ),
-      child: Column(children: [
-        Icon(Icons.confirmation_num_outlined,
-            color: AppTheme.textMuted(dark).withOpacity(0.35), size: 38),
-        const SizedBox(height: 12),
-        Text('No tickets yet', style: TextStyle(
-          color: AppTheme.textPrimary(dark),
-          fontSize: 15, fontWeight: FontWeight.w700)),
-        const SizedBox(height: 6),
-        Text('Tap the button below to create one',
-          style: TextStyle(color: AppTheme.textMuted(dark), fontSize: 12)),
-        const SizedBox(height: 18),
-        GestureDetector(
-          onTap: onTap,
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
-            decoration: BoxDecoration(
-              color: AppTheme.crimson,
-              borderRadius: BorderRadius.circular(10)),
-            child: const Text('Create ticket', style: TextStyle(
-              color: Colors.white, fontSize: 13, fontWeight: FontWeight.w700)),
-          ),
-        ),
-      ]),
-    );
-  }
-}
-
-// ── Skeleton loader ──
-class _SkeletonList extends StatelessWidget {
-  final bool dark;
-  const _SkeletonList({required this.dark});
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(children: List.generate(3, (_) => Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      height: 66,
-      decoration: BoxDecoration(
-        color: AppTheme.card(dark), borderRadius: BorderRadius.circular(12)),
-    )));
-  }
-}
-
-// ── Error strip ──
+// =============================================================
+// ERROR STRIP
+// =============================================================
 class _ErrorStrip extends StatelessWidget {
   final String message;
-  final bool dark;
+  final bool   dark;
   const _ErrorStrip({required this.message, required this.dark});
 
   @override
@@ -795,612 +1214,508 @@ class _ErrorStrip extends StatelessWidget {
       decoration: BoxDecoration(
         color:        AppTheme.crimson.withOpacity(0.08),
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: AppTheme.crimson.withOpacity(0.25)),
-      ),
+        border: Border.all(color: AppTheme.crimson.withOpacity(0.25))),
       child: Row(children: [
         const Icon(Icons.error_outline_rounded,
             color: AppTheme.crimson, size: 18),
         const SizedBox(width: 10),
         Expanded(child: Text(message, style: const TextStyle(
           color: AppTheme.crimson, fontSize: 13))),
-      ]),
-    );
-  }
-}
-
-// ── Quick actions grid ──
-class _QuickGrid extends StatelessWidget {
-  final bool dark;
-  final VoidCallback onCreateTap;
-  const _QuickGrid({required this.dark, required this.onCreateTap});
-
-  @override
-  Widget build(BuildContext context) {
-    final items = [
-      _QA(icon: Icons.qr_code_scanner_rounded, label: 'Scan QR',
-          color: AppTheme.crimson,  onTap: onCreateTap),
-      _QA(icon: Icons.link_rounded, label: 'Enter Link',
-          color: Colors.blue,       onTap: onCreateTap),
-      _QA(icon: Icons.history_rounded, label: 'History',
-          color: Colors.orange,     onTap: () {}),
-      _QA(icon: Icons.notifications_rounded, label: 'Alerts',
-          color: Colors.purple,     onTap: () {}),
-      _QA(icon: Icons.bar_chart_rounded, label: 'Analytics',
-          color: Colors.teal,       onTap: () {}),
-      _QA(icon: Icons.support_agent_rounded, label: 'Support',
-          color: Colors.green,      onTap: () {}),
-    ];
-
-    return GridView.count(
-      crossAxisCount:   3,
-      crossAxisSpacing: 10,
-      mainAxisSpacing:  10,
-      childAspectRatio: 1.1,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      children: items.map((a) => _QATile(qa: a, dark: dark)).toList(),
-    );
-  }
-}
-
-class _QA {
-  final IconData icon;
-  final String   label;
-  final Color    color;
-  final VoidCallback onTap;
-  const _QA({required this.icon, required this.label,
-      required this.color, required this.onTap});
-}
-
-class _QATile extends StatefulWidget {
-  final _QA  qa;
-  final bool dark;
-  const _QATile({required this.qa, required this.dark});
-
-  @override
-  State<_QATile> createState() => _QATileState();
-}
-
-class _QATileState extends State<_QATile> with SingleTickerProviderStateMixin {
-  late AnimationController _c;
-  late Animation<double>   _s;
-
-  @override
-  void initState() {
-    super.initState();
-    _c = AnimationController(vsync: this,
-        duration: const Duration(milliseconds: 100));
-    _s = Tween<double>(begin: 1.0, end: 0.94)
-        .animate(CurvedAnimation(parent: _c, curve: Curves.easeInOut));
-  }
-
-  @override
-  void dispose() { _c.dispose(); super.dispose(); }
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown:   (_) => _c.forward(),
-      onTapUp:     (_) { _c.reverse(); widget.qa.onTap(); },
-      onTapCancel: ()  => _c.reverse(),
-      child: AnimatedBuilder(
-        animation: _s,
-        builder: (_, child) => Transform.scale(scale: _s.value, child: child),
-        child: Container(
-          decoration: BoxDecoration(
-            color:        AppTheme.card(widget.dark),
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: AppTheme.border(widget.dark)),
-          ),
-          child: Column(mainAxisAlignment: MainAxisAlignment.center, children: [
-            Container(
-              width: 36, height: 36,
-              decoration: BoxDecoration(
-                color:        widget.qa.color.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(9),
-              ),
-              child: Icon(widget.qa.icon, color: widget.qa.color, size: 17),
-            ),
-            const SizedBox(height: 8),
-            Text(widget.qa.label, style: TextStyle(
-              color: AppTheme.textPrimary(widget.dark),
-              fontSize: 11, fontWeight: FontWeight.w700)),
-          ]),
-        ),
-      ),
-    );
+      ]));
   }
 }
 
 // =============================================================
-// ─────────────────────────────────────────────────────────────
-//  SETTINGS PAGE  (Tab 2)
-//  Replaces _SettingsPlaceholder entirely.
-//  Features:
-//    - Profile card with initials, email, verified badge
-//    - Appearance: dark/light toggle (live)
-//    - Notifications: push + email toggles
-//    - Security: biometric stub + change password stub
-//    - About: version, privacy, terms
-//    - Logout with confirmation dialog
-// ─────────────────────────────────────────────────────────────
+// SETTINGS DRAWER  (right side panel)
 // =============================================================
-class _SettingsPage extends StatefulWidget {
-  final AuthUser   user;
+class _SettingsDrawer extends StatelessWidget {
+  final bool         dark;
+  final AuthUser     user;
   final VoidCallback onLogout;
-  const _SettingsPage({required this.user, required this.onLogout});
 
-  @override
-  State<_SettingsPage> createState() => _SettingsPageState();
-}
-
-class _SettingsPageState extends State<_SettingsPage> {
-  bool _notifPush    = true;
-  bool _notifEmail   = true;
-  bool _biometric    = false;
-
-  bool get _dark => ThemeProvider().isDarkMode;
-
-  @override
-  void initState() {
-    super.initState();
-    ThemeProvider().addListener(_rebuild);
-  }
-
-  void _rebuild() { if (mounted) setState(() {}); }
-
-  @override
-  void dispose() {
-    ThemeProvider().removeListener(_rebuild);
-    super.dispose();
-  }
-
-  String _initials() {
-    if (widget.user.username.isEmpty) return '?';
-    final p = widget.user.username.trim().split(' ');
-    return (p.length >= 2 ? '${p[0][0]}${p[1][0]}' : widget.user.username[0])
-        .toUpperCase();
-  }
-
-  Future<void> _confirmLogout() async {
-    final ok = await showDialog<bool>(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: AppTheme.card(_dark),
-        shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16)),
-        title: Text('Log out?', style: TextStyle(
-          color: AppTheme.textPrimary(_dark), fontWeight: FontWeight.w800)),
-        content: Text(
-          'You will need to sign in again to access your account.',
-          style: TextStyle(color: AppTheme.textMuted(_dark))),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, false),
-            child: Text('Cancel',
-                style: TextStyle(color: AppTheme.textMuted(_dark)))),
-          TextButton(
-            onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Log out', style: TextStyle(
-              color: AppTheme.crimson, fontWeight: FontWeight.w700))),
-        ],
-      ),
-    );
-    if (ok == true) widget.onLogout();
-  }
-
-  void _snack(String msg) {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content: Text(msg),
-      behavior:        SnackBarBehavior.floating,
-      backgroundColor: AppTheme.card(_dark),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-    ));
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return SingleChildScrollView(
-      padding: const EdgeInsets.symmetric(horizontal: 24),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const SizedBox(height: 24),
-
-        // Header
-        Text('Settings', style: TextStyle(
-          color: AppTheme.textPrimary(_dark), fontSize: 28,
-          fontWeight: FontWeight.w900, letterSpacing: -0.5)),
-        const SizedBox(height: 22),
-
-        // ── Profile card ──
-        Container(
-          padding: const EdgeInsets.all(20),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: [AppTheme.crimson, AppTheme.darkCrimson],
-              begin: Alignment.topLeft, end: Alignment.bottomRight),
-            borderRadius: BorderRadius.circular(18),
-            boxShadow: [BoxShadow(
-              color: AppTheme.crimson.withOpacity(0.25),
-              blurRadius: 20, offset: const Offset(0, 8))],
-          ),
-          child: Row(children: [
-            Container(
-              width: 56, height: 56,
-              decoration: BoxDecoration(
-                color:  Colors.white.withOpacity(0.2),
-                shape:  BoxShape.circle,
-                border: Border.all(
-                    color: Colors.white.withOpacity(0.4), width: 2)),
-              child: Center(child: Text(_initials(), style: const TextStyle(
-                color: Colors.white, fontSize: 20,
-                fontWeight: FontWeight.w900))),
-            ),
-            const SizedBox(width: 16),
-            Expanded(child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  widget.user.username.isNotEmpty
-                      ? widget.user.username : 'User',
-                  style: const TextStyle(
-                    color: Colors.white, fontSize: 17,
-                    fontWeight: FontWeight.w800),
-                  overflow: TextOverflow.ellipsis),
-                const SizedBox(height: 3),
-                Text(widget.user.email, style: TextStyle(
-                  color: Colors.white.withOpacity(0.75), fontSize: 13),
-                  overflow: TextOverflow.ellipsis),
-              ],
-            )),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 5),
-              decoration: BoxDecoration(
-                color:        Colors.white.withOpacity(0.2),
-                borderRadius: BorderRadius.circular(8)),
-              child: Row(mainAxisSize: MainAxisSize.min, children: const [
-                Icon(Icons.verified_rounded, color: Colors.white, size: 12),
-                SizedBox(width: 4),
-                Text('Active', style: TextStyle(
-                  color: Colors.white, fontSize: 11,
-                  fontWeight: FontWeight.w700)),
-              ]),
-            ),
-          ]),
-        ),
-        const SizedBox(height: 28),
-
-        // ── APPEARANCE ──
-        _SLabel(label: 'APPEARANCE', dark: _dark),
-        const SizedBox(height: 10),
-        _SCard(dark: _dark, children: [
-          _SwitchRow(
-            dark:      _dark,
-            icon:      _dark ? Icons.dark_mode_rounded : Icons.light_mode_rounded,
-            iconColor: _dark ? const Color(0xFF7B61FF) : Colors.orange,
-            title:     _dark ? 'Dark Mode' : 'Light Mode',
-            sub:       _dark ? 'Currently using dark theme'
-                              : 'Currently using light theme',
-            value:     _dark,
-            onChanged: (_) => ThemeProvider().toggleTheme(),
-          ),
-        ]),
-        const SizedBox(height: 18),
-
-        // ── NOTIFICATIONS ──
-        _SLabel(label: 'NOTIFICATIONS', dark: _dark),
-        const SizedBox(height: 10),
-        _SCard(dark: _dark, children: [
-          _SwitchRow(
-            dark: _dark, icon: Icons.notifications_rounded,
-            iconColor: Colors.orange,
-            title: 'Push Notifications', sub: 'Ticket status updates',
-            value: _notifPush,
-            onChanged: (v) => setState(() => _notifPush = v),
-          ),
-          _SDivider(dark: _dark),
-          _SwitchRow(
-            dark: _dark, icon: Icons.mail_outline_rounded,
-            iconColor: Colors.blue,
-            title: 'Email Notifications', sub: 'Receive updates by email',
-            value: _notifEmail,
-            onChanged: (v) => setState(() => _notifEmail = v),
-          ),
-        ]),
-        const SizedBox(height: 18),
-
-        // ── SECURITY ──
-        _SLabel(label: 'SECURITY', dark: _dark),
-        const SizedBox(height: 10),
-        _SCard(dark: _dark, children: [
-          _SwitchRow(
-            dark: _dark, icon: Icons.fingerprint_rounded,
-            iconColor: Colors.green,
-            title: 'Biometric Lock', sub: 'Fingerprint or Face ID',
-            value: _biometric,
-            onChanged: (v) => setState(() => _biometric = v),
-          ),
-          _SDivider(dark: _dark),
-          _ActionRow(
-            dark: _dark, icon: Icons.lock_outline_rounded,
-            iconColor: Colors.teal,
-            title: 'Change Password', sub: 'Update your account password',
-            onTap: () => _snack('Change password — coming soon'),
-          ),
-        ]),
-        const SizedBox(height: 18),
-
-        // ── ABOUT ──
-        _SLabel(label: 'ABOUT', dark: _dark),
-        const SizedBox(height: 10),
-        _SCard(dark: _dark, children: [
-          _ActionRow(
-            dark: _dark, icon: Icons.info_outline_rounded,
-            iconColor: Colors.indigo,
-            title: 'App Version', sub: 'TICKETY v1.0.0',
-            trailing: Text('v1.0.0', style: TextStyle(
-              color: AppTheme.textMuted(_dark), fontSize: 13)),
-            onTap: () {},
-          ),
-          _SDivider(dark: _dark),
-          _ActionRow(
-            dark: _dark, icon: Icons.privacy_tip_outlined,
-            iconColor: Colors.purple,
-            title: 'Privacy Policy', sub: 'Read our privacy policy',
-            onTap: () => _snack('Privacy Policy — coming soon'),
-          ),
-          _SDivider(dark: _dark),
-          _ActionRow(
-            dark: _dark, icon: Icons.article_outlined,
-            iconColor: const Color(0xFF8D6748),
-            title: 'Terms of Service', sub: 'Read terms and conditions',
-            onTap: () => _snack('Terms of Service — coming soon'),
-          ),
-        ]),
-        const SizedBox(height: 18),
-
-        // ── ACCOUNT ──
-        _SLabel(label: 'ACCOUNT', dark: _dark),
-        const SizedBox(height: 10),
-        _SCard(dark: _dark, children: [
-          _ActionRow(
-            dark: _dark, icon: Icons.logout_rounded,
-            iconColor: AppTheme.crimson,
-            title: 'Log Out', sub: 'Sign out of your account',
-            titleColor: AppTheme.crimson,
-            onTap: _confirmLogout,
-          ),
-        ]),
-        const SizedBox(height: 32),
-
-        Center(child: Text('TICKETY · v1.0.0',
-          style: TextStyle(
-            color: AppTheme.textMuted(_dark).withOpacity(0.35),
-            fontSize: 11))),
-        const SizedBox(height: 24),
-      ]),
-    );
-  }
-}
-
-// ── Settings sub-widgets ──
-
-class _SLabel extends StatelessWidget {
-  final String label;
-  final bool   dark;
-  const _SLabel({required this.label, required this.dark});
-
-  @override
-  Widget build(BuildContext context) => Text(label, style: TextStyle(
-    color: AppTheme.textMuted(dark), fontSize: 11,
-    fontWeight: FontWeight.w700, letterSpacing: 2));
-}
-
-class _SCard extends StatelessWidget {
-  final bool   dark;
-  final List<Widget> children;
-  const _SCard({required this.dark, required this.children});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    decoration: BoxDecoration(
-      color:        AppTheme.card(dark),
-      borderRadius: BorderRadius.circular(14),
-      border: Border.all(color: AppTheme.border(dark))),
-    child: Column(children: children));
-}
-
-class _SDivider extends StatelessWidget {
-  final bool dark;
-  const _SDivider({required this.dark});
-
-  @override
-  Widget build(BuildContext context) =>
-      Divider(height: 1, indent: 64, color: AppTheme.border(dark));
-}
-
-class _SwitchRow extends StatelessWidget {
-  final bool   dark;
-  final IconData icon;
-  final Color  iconColor;
-  final String title, sub;
-  final bool   value;
-  final void Function(bool) onChanged;
-  const _SwitchRow({required this.dark, required this.icon,
-      required this.iconColor, required this.title, required this.sub,
-      required this.value, required this.onChanged});
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      child: Row(children: [
-        _IconBox(icon: icon, color: iconColor),
-        const SizedBox(width: 14),
-        Expanded(child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(title, style: TextStyle(
-              color: AppTheme.textPrimary(dark),
-              fontSize: 14, fontWeight: FontWeight.w700)),
-            const SizedBox(height: 2),
-            Text(sub, style: TextStyle(
-              color: AppTheme.textMuted(dark), fontSize: 12)),
-          ],
-        )),
-        Switch(
-          value:            value,
-          onChanged:        onChanged,
-          activeColor:      AppTheme.crimson,
-          activeTrackColor: AppTheme.crimson.withOpacity(0.3),
-          inactiveThumbColor: AppTheme.textMuted(dark),
-          inactiveTrackColor: AppTheme.border(dark),
-        ),
-      ]),
-    );
-  }
-}
-
-class _ActionRow extends StatelessWidget {
-  final bool   dark;
-  final IconData icon;
-  final Color  iconColor;
-  final String title, sub;
-  final VoidCallback onTap;
-  final Widget?  trailing;
-  final Color?   titleColor;
-  const _ActionRow({required this.dark, required this.icon,
-      required this.iconColor, required this.title, required this.sub,
-      required this.onTap, this.trailing, this.titleColor});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-        child: Row(children: [
-          _IconBox(icon: icon, color: iconColor),
-          const SizedBox(width: 14),
-          Expanded(child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: TextStyle(
-                color: titleColor ?? AppTheme.textPrimary(dark),
-                fontSize: 14, fontWeight: FontWeight.w700)),
-              const SizedBox(height: 2),
-              Text(sub, style: TextStyle(
-                color: AppTheme.textMuted(dark), fontSize: 12)),
-            ],
-          )),
-          trailing ?? Icon(Icons.chevron_right_rounded,
-              color: AppTheme.textMuted(dark), size: 20),
-        ]),
-      ),
-    );
-  }
-}
-
-class _IconBox extends StatelessWidget {
-  final IconData icon;
-  final Color    color;
-  const _IconBox({required this.icon, required this.color});
-
-  @override
-  Widget build(BuildContext context) => Container(
-    width: 36, height: 36,
-    decoration: BoxDecoration(
-      color:        color.withOpacity(0.12),
-      borderRadius: BorderRadius.circular(9)),
-    child: Icon(icon, color: color, size: 18));
-}
-
-// =============================================================
-// SHARED REUSABLE WIDGETS  (kept from original for compatibility)
-// =============================================================
-class ThemeToggleButton extends StatefulWidget {
-  const ThemeToggleButton({super.key});
-
-  @override
-  State<ThemeToggleButton> createState() => _ThemeToggleButtonState();
-}
-
-class _ThemeToggleButtonState extends State<ThemeToggleButton>
-    with SingleTickerProviderStateMixin {
-
-  late AnimationController _ctrl;
-
-  @override
-  void initState() {
-    super.initState();
-    _ctrl = AnimationController(
-        vsync: this, duration: const Duration(milliseconds: 300));
-    ThemeProvider().addListener(_onThemeChanged);
-  }
-
-  void _onThemeChanged() {
-    if (mounted) { _ctrl.forward(from: 0); setState(() {}); }
-  }
-
-  @override
-  void dispose() {
-    ThemeProvider().removeListener(_onThemeChanged);
-    _ctrl.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = ThemeProvider().isDarkMode;
-    return GestureDetector(
-      onTap: () => ThemeProvider().toggleTheme(),
-      child: Container(
-        width: 40, height: 40,
-        decoration: BoxDecoration(
-          color:        AppTheme.card(isDark),
-          borderRadius: BorderRadius.circular(10),
-          border: Border.all(color: AppTheme.border(isDark)),
-        ),
-        child: RotationTransition(
-          turns: Tween(begin: 0.0, end: 0.5).animate(_ctrl),
-          child: Icon(
-            isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-            color: isDark ? const Color(0xFFFFC107) : const Color(0xFF555555),
-            size: 18,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class StatusBadge extends StatelessWidget {
-  final String label;
-  final Color  color;
-  const StatusBadge({super.key, required this.label, required this.color});
+  const _SettingsDrawer({
+    required this.dark,
+    required this.user,
+    required this.onLogout,
+  });
 
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      width: 280,
+      height: double.infinity,
       decoration: BoxDecoration(
-        color:        color.withOpacity(0.12),
-        borderRadius: BorderRadius.circular(6)),
-      child: Text(label, style: TextStyle(
-        color: color, fontSize: 10,
-        fontWeight: FontWeight.w800, letterSpacing: 1.5)));
+        color:  AppTheme.card(dark),
+        border: Border(
+            left: BorderSide(color: AppTheme.border(dark)))),
+      child: SafeArea(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Header
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text('Settings', style: TextStyle(
+                    color:      AppTheme.textPrimary(dark),
+                    fontSize:   20,
+                    fontWeight: FontWeight.w900)),
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      padding: const EdgeInsets.all(8),
+                      decoration: BoxDecoration(
+                        color:        AppTheme.surface(dark),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(
+                            color: AppTheme.border(dark))),
+                      child: Icon(Icons.close_rounded,
+                          color: AppTheme.textMuted(dark), size: 18))),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+            Divider(color: AppTheme.border(dark)),
+            const SizedBox(height: 16),
+
+            // Theme toggle
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _sLabel('APPEARANCE'),
+            ),
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(dark ? 'Dark Mode' : 'Light Mode',
+                    style: TextStyle(
+                      color:      AppTheme.textPrimary(dark),
+                      fontSize:   14,
+                      fontWeight: FontWeight.w600)),
+                  GestureDetector(
+                    onTap: () => ThemeProvider().toggleTheme(),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 300),
+                      width: 48, height: 26,
+                      decoration: BoxDecoration(
+                        color: dark
+                            ? AppTheme.crimson
+                            : AppTheme.border(dark),
+                        borderRadius: BorderRadius.circular(13)),
+                      child: AnimatedAlign(
+                        duration: const Duration(milliseconds: 300),
+                        curve:    Curves.easeInOut,
+                        alignment: dark
+                            ? Alignment.centerRight
+                            : Alignment.centerLeft,
+                        child: Container(
+                          width: 20, height: 20,
+                          margin: const EdgeInsets.symmetric(
+                              horizontal: 3),
+                          decoration: const BoxDecoration(
+                            color: Colors.white,
+                            shape: BoxShape.circle))))),
+                ],
+              ),
+            ),
+
+            const SizedBox(height: 24),
+            Divider(color: AppTheme.border(dark)),
+            const SizedBox(height: 16),
+
+            // Account section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _sLabel('ACCOUNT'),
+            ),
+            const SizedBox(height: 12),
+            _tile(context, dark, Icons.person_outline_rounded,
+                'Edit Profile', () {}),
+            const SizedBox(height: 8),
+            _tile(context, dark, Icons.lock_outline_rounded,
+                'Change Password', () {}),
+
+            const SizedBox(height: 24),
+            Divider(color: AppTheme.border(dark)),
+            const SizedBox(height: 16),
+
+            // About section
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: _sLabel('ABOUT'),
+            ),
+            const SizedBox(height: 12),
+            _tile(context, dark, Icons.info_outline_rounded,
+                'About TICKETY', () {}),
+            _tile(context, dark, Icons.privacy_tip_outlined,
+                'Privacy Policy', () {}),
+            _tile(context, dark, Icons.article_outlined,
+                'Terms of Service', () {}),
+
+            const Spacer(),
+            Divider(color: AppTheme.border(dark)),
+            const SizedBox(height: 12),
+
+            // Logout
+            Padding(
+              padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+              child: GestureDetector(
+                onTap: () {
+                  Navigator.pop(context);
+                  onLogout();
+                },
+                child: Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color:        AppTheme.crimson.withOpacity(0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: AppTheme.crimson.withOpacity(0.3))),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: const [
+                      Icon(Icons.logout_rounded,
+                          color: AppTheme.crimson, size: 18),
+                      SizedBox(width: 8),
+                      Text('Log Out', style: TextStyle(
+                        color:      AppTheme.crimson,
+                        fontSize:   14,
+                        fontWeight: FontWeight.w700)),
+                    ])))),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _sLabel(String text) => Text(text, style: TextStyle(
+    color:      AppTheme.textMuted(dark),
+    fontSize:   11,
+    fontWeight: FontWeight.w700,
+    letterSpacing: 2));
+
+  Widget _tile(BuildContext context, bool dark, IconData icon,
+      String label, VoidCallback onTap) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(
+          horizontal: 24, vertical: 4),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(
+              horizontal: 14, vertical: 13),
+          decoration: BoxDecoration(
+            color:        AppTheme.surface(dark),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(color: AppTheme.border(dark))),
+          child: Row(children: [
+            Icon(icon, color: AppTheme.textMuted(dark), size: 18),
+            const SizedBox(width: 12),
+            Expanded(child: Text(label, style: TextStyle(
+              color:      AppTheme.textPrimary(dark),
+              fontSize:   13,
+              fontWeight: FontWeight.w600))),
+            Icon(Icons.chevron_right_rounded,
+                color: AppTheme.textMuted(dark), size: 16),
+          ]))));
   }
 }
 
-class SectionLabel extends StatelessWidget {
-  final String label;
-  const SectionLabel({super.key, required this.label});
+// =============================================================
+// SWAP PICKER SHEET
+// =============================================================
+class _SwapPickerSheet extends StatefulWidget {
+  final bool                      dark;
+  final DashTicket                sourceTicket;
+  final void Function(String)     onSend;
+
+  const _SwapPickerSheet({
+    required this.dark,
+    required this.sourceTicket,
+    required this.onSend,
+  });
+
+  @override
+  State<_SwapPickerSheet> createState() => _SwapPickerSheetState();
+}
+
+class _SwapPickerSheetState extends State<_SwapPickerSheet> {
+
+  // Placeholder queue members — replaced by real API data later
+  final List<Map<String, String>> _members = const [
+    {'ticket': 'A041', 'position': '1', 'wait': '2 min'},
+    {'ticket': 'A043', 'position': '2', 'wait': '6 min'},
+    {'ticket': 'A049', 'position': '4', 'wait': '18 min'},
+    {'ticket': 'A052', 'position': '5', 'wait': '24 min'},
+    {'ticket': 'A055', 'position': '6', 'wait': '30 min'},
+  ];
+
+  String? _selected;
 
   @override
   Widget build(BuildContext context) {
-    final isDark = ThemeProvider().isDarkMode;
-    return Text(label, style: TextStyle(
-      color: AppTheme.textMuted(isDark), fontSize: 11,
-      fontWeight: FontWeight.w700, letterSpacing: 2));
+    final dark = widget.dark;
+    return Container(
+      decoration: BoxDecoration(
+        color:        AppTheme.card(dark),
+        borderRadius: const BorderRadius.vertical(
+            top: Radius.circular(28))),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // Handle
+            Container(width: 40, height: 4,
+              decoration: BoxDecoration(
+                color:        AppTheme.border(dark),
+                borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+
+            // Header
+            Row(children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color:        const Color(0xFF2196F3).withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: const Color(0xFF2196F3).withOpacity(0.3))),
+                child: const Icon(Icons.swap_horiz_rounded,
+                    color: Color(0xFF2196F3), size: 22)),
+              const SizedBox(width: 14),
+              Expanded(child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text('Request Swap', style: TextStyle(
+                    color:      AppTheme.textPrimary(dark),
+                    fontSize:   17,
+                    fontWeight: FontWeight.w900)),
+                  Text(
+                    'Choose who to swap with at '
+                    '${widget.sourceTicket.serviceName}',
+                    style: TextStyle(
+                        color: AppTheme.textMuted(dark), fontSize: 12)),
+                ])),
+            ]),
+
+            const SizedBox(height: 12),
+
+            // Your ticket info
+            Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 14, vertical: 10),
+              decoration: BoxDecoration(
+                color:        AppTheme.surface(dark),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: AppTheme.border(dark))),
+              child: Row(children: [
+                Text('Your ticket:', style: TextStyle(
+                    color: AppTheme.textMuted(dark), fontSize: 12)),
+                const SizedBox(width: 8),
+                Text(widget.sourceTicket.ticketNumber,
+                  style: const TextStyle(
+                    color:      AppTheme.crimson,
+                    fontSize:   13,
+                    fontWeight: FontWeight.w800)),
+                const Spacer(),
+                const Icon(Icons.swap_horiz_rounded,
+                    color: AppTheme.crimson, size: 16),
+                const SizedBox(width: 6),
+                Text('Select target', style: TextStyle(
+                    color: AppTheme.textMuted(dark), fontSize: 12)),
+              ])),
+
+            const SizedBox(height: 12),
+            Divider(color: AppTheme.border(dark)),
+            const SizedBox(height: 8),
+
+            // Member list
+            SizedBox(
+              height: 200,
+              child: ListView.separated(
+                itemCount: _members.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(height: 8),
+                itemBuilder: (_, i) {
+                  final m        = _members[i];
+                  final ticket   = m['ticket']!;
+                  final isSelected = _selected == ticket;
+                  return GestureDetector(
+                    onTap: () =>
+                        setState(() => _selected = ticket),
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 200),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      decoration: BoxDecoration(
+                        color: isSelected
+                            ? const Color(0xFF2196F3).withOpacity(0.08)
+                            : AppTheme.surface(dark),
+                        borderRadius: BorderRadius.circular(12),
+                        border: Border.all(
+                          color: isSelected
+                              ? const Color(0xFF2196F3).withOpacity(0.5)
+                              : AppTheme.border(dark),
+                          width: isSelected ? 1.5 : 1)),
+                      child: Row(children: [
+                        Container(
+                          width: 42, height: 42,
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? const Color(0xFF2196F3)
+                                    .withOpacity(0.12)
+                                : AppTheme.card(dark),
+                            borderRadius: BorderRadius.circular(11),
+                            border: Border.all(
+                              color: isSelected
+                                  ? const Color(0xFF2196F3)
+                                      .withOpacity(0.3)
+                                  : AppTheme.border(dark))),
+                          child: Center(child: Text(ticket,
+                            style: TextStyle(
+                              color: isSelected
+                                  ? const Color(0xFF2196F3)
+                                  : AppTheme.textPrimary(dark),
+                              fontSize:   11,
+                              fontWeight: FontWeight.w800)))),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text('Position ${m['position']}',
+                              style: TextStyle(
+                                color:      AppTheme.textPrimary(dark),
+                                fontSize:   13,
+                                fontWeight: FontWeight.w700)),
+                            Text('Est. wait: ${m['wait']}',
+                              style: TextStyle(
+                                  color:    AppTheme.textMuted(dark),
+                                  fontSize: 12)),
+                          ])),
+                        if (isSelected)
+                          const Icon(Icons.check_circle_rounded,
+                              color: Color(0xFF2196F3), size: 20),
+                      ])));
+                },
+              ),
+            ),
+
+            const SizedBox(height: 16),
+
+            // Send button
+            SizedBox(
+              width: double.infinity, height: 52,
+              child: ElevatedButton(
+                onPressed: _selected == null
+                    ? null : () => widget.onSend(_selected!),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor:         _selected != null
+                      ? const Color(0xFF2196F3)
+                      : AppTheme.border(dark),
+                  disabledBackgroundColor: AppTheme.border(dark),
+                  elevation: 0,
+                  shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(14))),
+                child: Text(
+                  _selected != null
+                      ? 'Send Swap Request to $_selected'
+                      : 'Select a ticket first',
+                  style: TextStyle(
+                    color: _selected != null
+                        ? Colors.white
+                        : AppTheme.textMuted(dark),
+                    fontSize:   14,
+                    fontWeight: FontWeight.w800)),
+              )),
+          ]),
+        ),
+      ),
+    );
+  }
+}
+
+// =============================================================
+// CONFIRM DIALOG
+// =============================================================
+class _ConfirmDialog extends StatelessWidget {
+  final bool         dark;
+  final String       title;
+  final String       message;
+  final String       confirmLabel;
+  final VoidCallback onConfirm;
+
+  const _ConfirmDialog({
+    required this.dark,
+    required this.title,
+    required this.message,
+    required this.confirmLabel,
+    required this.onConfirm,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.card(dark),
+      shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(24)),
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color:  AppTheme.crimson.withOpacity(0.1),
+              shape:  BoxShape.circle,
+              border: Border.all(
+                  color: AppTheme.crimson.withOpacity(0.3))),
+            child: const Icon(Icons.exit_to_app_rounded,
+                color: AppTheme.crimson, size: 28)),
+          const SizedBox(height: 16),
+          Text(title, style: TextStyle(
+            color:      AppTheme.textPrimary(dark),
+            fontSize:   17,
+            fontWeight: FontWeight.w900)),
+          const SizedBox(height: 8),
+          Text(message, textAlign: TextAlign.center,
+            style: TextStyle(
+                color: AppTheme.textMuted(dark),
+                fontSize: 13, height: 1.5)),
+          const SizedBox(height: 24),
+          Row(children: [
+            Expanded(child: GestureDetector(
+              onTap: () => Navigator.pop(context),
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  color:        AppTheme.surface(dark),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(
+                      color: AppTheme.border(dark))),
+                child: Center(child: Text('Cancel',
+                  style: TextStyle(
+                    color:      AppTheme.textPrimary(dark),
+                    fontWeight: FontWeight.w700)))))),
+            const SizedBox(width: 12),
+            Expanded(child: GestureDetector(
+              onTap: () { Navigator.pop(context); onConfirm(); },
+              child: Container(
+                padding: const EdgeInsets.symmetric(vertical: 13),
+                decoration: BoxDecoration(
+                  color:        AppTheme.crimson,
+                  borderRadius: BorderRadius.circular(12)),
+                child: Center(child: Text(confirmLabel,
+                  style: const TextStyle(
+                    color:      Colors.white,
+                    fontWeight: FontWeight.w700)))))),
+          ]),
+        ]),
+      ),
+    );
   }
 }
