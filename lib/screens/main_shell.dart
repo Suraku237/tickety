@@ -8,6 +8,7 @@ import 'home_page.dart';
 import 'services_page.dart';
 import 'alerts_page.dart';
 import 'profile_page.dart';
+import 'login_page.dart';
 
 // =============================================================
 // NAV ITEM MODEL
@@ -108,7 +109,10 @@ class _MainShellState extends State<MainShell>
     await _session.clear();
     _api.clearToken();
     if (!mounted) return;
-    Navigator.of(context).popUntil((r) => r.isFirst);
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginPage()),
+      (route) => false,
+    );
   }
 
   @override
