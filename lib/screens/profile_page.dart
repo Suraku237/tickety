@@ -494,62 +494,120 @@ class _ProfilePageState extends State<ProfilePage>
 
   // ── About sheet ──────────────────────────────────────────────
   void _showAboutSheet() {
+    final developers = [
+      {'name': 'Amina', 'role': 'UI/UX Designer'},
+      {'name': 'Bruno', 'role': 'Backend Developer'},
+      {'name': 'Andre', 'role': 'Frontend Developer'},
+      {'name': 'Rayan', 'role': 'Full Stack Developer'},
+      {'name': 'Bachirou', 'role': 'DevOps Engineer'},
+    ];
+
     showModalBottomSheet(
       context:         context,
       backgroundColor: Colors.transparent,
+      isScrollControlled: true,
       builder: (_) => Container(
         decoration: BoxDecoration(
           color:        AppTheme.card(isDark),
           borderRadius: const BorderRadius.vertical(
               top: Radius.circular(28))),
         child: SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
-            child: Column(mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(width: 40, height: 4,
-                  decoration: BoxDecoration(
-                    color:        AppTheme.border(isDark),
-                    borderRadius: BorderRadius.circular(2))),
-                const SizedBox(height: 24),
-                Container(
-                  width: 72, height: 72,
-                  decoration: BoxDecoration(
-                    color:        AppTheme.crimson,
-                    borderRadius: BorderRadius.circular(18),
-                    boxShadow: [BoxShadow(
-                      color:      AppTheme.crimson.withOpacity(0.35),
-                      blurRadius: 20, offset: const Offset(0, 8))]),
-                  child: const Icon(Icons.confirmation_num_rounded,
-                      color: Colors.white, size: 34)),
-                const SizedBox(height: 18),
-                Text('TICKETY', style: TextStyle(
-                  color:      AppTheme.textPrimary(isDark),
-                  fontSize:   24,
-                  fontWeight: FontWeight.w900,
-                  letterSpacing: 4)),
-                const SizedBox(height: 6),
-                Text('Smart Queue Management System',
-                  style: TextStyle(
-                    color:    AppTheme.textMuted(isDark),
-                    fontSize: 13)),
-                const SizedBox(height: 4),
-                Text('Version 1.0.0',
-                  style: TextStyle(
-                    color:    AppTheme.textMuted(isDark).withOpacity(0.5),
-                    fontSize: 12)),
-                const SizedBox(height: 20),
-                Text(
-                  'TICKETY helps you manage service queues and digital '
-                  'tickets with a modern, intuitive interface. '
-                  'Skip the physical line — queue from anywhere.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color:  AppTheme.textMuted(isDark),
-                    fontSize: 13,
-                    height: 1.6)),
-                const SizedBox(height: 24),
-              ]),
+          child: SingleChildScrollView(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(24, 16, 24, 32),
+              child: Column(mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(width: 40, height: 4,
+                    decoration: BoxDecoration(
+                      color:        AppTheme.border(isDark),
+                      borderRadius: BorderRadius.circular(2))),
+                  const SizedBox(height: 24),
+                  Container(
+                    width: 72, height: 72,
+                    decoration: BoxDecoration(
+                      color:        AppTheme.crimson,
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [BoxShadow(
+                        color:      AppTheme.crimson.withOpacity(0.35),
+                        blurRadius: 20, offset: const Offset(0, 8))]),
+                    child: const Icon(Icons.confirmation_num_rounded,
+                        color: Colors.white, size: 34)),
+                  const SizedBox(height: 18),
+                  Text('TICKETY', style: TextStyle(
+                    color:      AppTheme.textPrimary(isDark),
+                    fontSize:   24,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 4)),
+                  const SizedBox(height: 6),
+                  Text('Smart Queue Management System',
+                    style: TextStyle(
+                      color:    AppTheme.textMuted(isDark),
+                      fontSize: 13)),
+                  const SizedBox(height: 4),
+                  Text('Version 1.0.0',
+                    style: TextStyle(
+                      color:    AppTheme.textMuted(isDark).withOpacity(0.5),
+                      fontSize: 12)),
+                  const SizedBox(height: 20),
+                  Text(
+                    'TICKETY helps you manage service queues and digital '
+                    'tickets with a modern, intuitive interface. '
+                    'Skip the physical line — queue from anywhere.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      color:  AppTheme.textMuted(isDark),
+                      fontSize: 13,
+                      height: 1.6)),
+                  const SizedBox(height: 28),
+                  Text('Development Team', style: TextStyle(
+                    color:      AppTheme.textMuted(isDark),
+                    fontSize:   11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 2)),
+                  const SizedBox(height: 14),
+                  ...developers.map((dev) => Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 11),
+                      decoration: BoxDecoration(
+                        color:        AppTheme.surface(isDark),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: AppTheme.border(isDark))),
+                      child: Row(children: [
+                        Container(
+                          width: 40, height: 40,
+                          decoration: BoxDecoration(
+                            shape:  BoxShape.circle,
+                            color:  AppTheme.crimson.withOpacity(0.15),
+                            border: Border.all(
+                              color: AppTheme.crimson.withOpacity(0.3))),
+                          child: Center(child: Text(
+                            dev['name']![0].toUpperCase(),
+                            style: const TextStyle(
+                              color:      AppTheme.crimson,
+                              fontSize:   16,
+                              fontWeight: FontWeight.w900)))),
+                        const SizedBox(width: 12),
+                        Expanded(child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(dev['name']!, style: TextStyle(
+                              color:      AppTheme.textPrimary(isDark),
+                              fontSize:   13,
+                              fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 2),
+                            Text(dev['role']!, style: TextStyle(
+                              color:    AppTheme.textMuted(isDark),
+                              fontSize: 11)),
+                          ])),
+                      ]),
+                    ),
+                  )),
+                  const SizedBox(height: 24),
+                ]),
+            ),
           ),
         ),
       ),
