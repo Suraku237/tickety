@@ -187,6 +187,30 @@ class ApiService {
   }) =>
       _delete('/tickets/$ticketId', {'user_id': userId}, useAuth: true);
 
+  // ----------------------------------------------------------
+  // ACCOUNT — CHANGE PASSWORD
+  // POST /change-password
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> changePassword({
+    required String userId,
+    required String currentPassword,
+    required String newPassword,
+  }) =>
+      _post('/change-password', {
+        'user_id': userId,
+        'current_password': currentPassword,
+        'new_password': newPassword,
+      }, useAuth: true);
+
+  // ----------------------------------------------------------
+  // ACCOUNT — DELETE
+  // POST /delete-account
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> deleteAccount({
+    required String userId,
+  }) =>
+      _post('/delete-account', {'user_id': userId}, useAuth: true);
+
   // ==========================================================
   // PRIVATE: HTTP helpers
   // ==========================================================

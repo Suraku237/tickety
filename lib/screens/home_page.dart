@@ -452,6 +452,7 @@ class _DashboardPageState extends State<_DashboardPage> {
               user:     widget.user,
               dark:     _dark,
               initials: _initials(),
+              onNavigate: widget.onNavigate,
             ),
             const SizedBox(height: 26),
 
@@ -579,11 +580,13 @@ class _TopBar extends StatelessWidget {
   final AuthUser user;
   final bool     dark;
   final String   initials;
+  final void Function(int)? onNavigate;
 
   const _TopBar({
     required this.user,
     required this.dark,
     required this.initials,
+    this.onNavigate,
   });
 
   @override
@@ -624,10 +627,7 @@ class _TopBar extends StatelessWidget {
 
       // Avatar — tapping navigates to Profile tab (index 3)
       GestureDetector(
-        onTap: () {
-          // Find MainShell's onNavigate via the inherited widget tree
-          // This is wired via the onNavigate callback passed from MainShell
-        },
+        onTap: () => onNavigate?.call(3),
         child: Container(
           width: 36, height: 36,
           decoration: BoxDecoration(
