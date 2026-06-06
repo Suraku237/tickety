@@ -80,6 +80,7 @@ class _ServicesPageState extends State<ServicesPage>
     with SingleTickerProviderStateMixin {
 
   final _api = ApiService();
+  final _searchController = TextEditingController();
 
   bool get isDark => ThemeProvider().isDarkMode;
   late TabController _tabController;
@@ -88,6 +89,7 @@ class _ServicesPageState extends State<ServicesPage>
   bool  _loading = true;
   String? _error;
   String _filter = 'all';
+  String _searchQuery = '';
 
   @override
   void initState() {
@@ -109,6 +111,7 @@ class _ServicesPageState extends State<ServicesPage>
   void dispose() {
     ThemeProvider().removeListener(_onThemeChanged);
     _tabController.dispose();
+    _searchController.dispose();
     super.dispose();
   }
 
@@ -134,10 +137,15 @@ class _ServicesPageState extends State<ServicesPage>
   }
 
   List<ServiceEntry> get _filtered {
+    var list = _services;
     if (_filter == 'active') {
-      return _services.where((s) => s.activeTickets > 0).toList();
+      list = list.where((s) => s.activeTickets > 0).toList();
     }
-    return _services;
+    if (_searchQuery.isNotEmpty) {
+      final q = _searchQuery.toLowerCase();
+      list = list.where((s) => s.name.toLowerCase().contains(q)).toList();
+    }
+    return list;
   }
 
   String _timeAgo(DateTime? dt) {
@@ -252,6 +260,43 @@ class _ServicesPageState extends State<ServicesPage>
               ),
               const SizedBox(height: 16),
 
+              // ── Search bar ────────────────────────────────
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Container(
+                  height: 46,
+                  decoration: BoxDecoration(
+                    color:        AppTheme.card(isDark),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.border(isDark))),
+                  child: TextField(
+                    controller:   _searchController,
+                    onChanged:    (v) => setState(() => _searchQuery = v.trim()),
+                    style: TextStyle(
+                        color: AppTheme.textPrimary(isDark), fontSize: 14),
+                    decoration: InputDecoration(
+                      hintText:       'Search services…',
+                      hintStyle: TextStyle(
+                          color: AppTheme.textMuted(isDark), fontSize: 14),
+                      prefixIcon: Icon(Icons.search_rounded,
+                          color: AppTheme.textMuted(isDark), size: 20),
+                      suffixIcon: _searchQuery.isNotEmpty
+                          ? GestureDetector(
+                              onTap: () {
+                                _searchController.clear();
+                                setState(() => _searchQuery = '');
+                              },
+                              child: Icon(Icons.close_rounded,
+                                  color: AppTheme.textMuted(isDark), size: 18))
+                          : null,
+                      border:         InputBorder.none,
+                      contentPadding: const EdgeInsets.symmetric(
+                          vertical: 13, horizontal: 4)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+
               // ── Body ──────────────────────────────────────
               Expanded(child: _buildBody()),
             ],
@@ -313,9 +358,28 @@ class _ServicesPageState extends State<ServicesPage>
     final list = _filtered;
 
     if (list.isEmpty) {
-      return Center(child: Text('No active services right now',
-          style: TextStyle(
-            color: AppTheme.textMuted(isDark), fontSize: 14)));
+      final isSearching = _searchQuery.isNotEmpty;
+      return Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(
+            isSearching ? Icons.search_off_rounded : Icons.store_outlined,
+            color: AppTheme.textMuted(isDark).withOpacity(0.4),
+            size: 44),
+          const SizedBox(height: 14),
+          Text(
+            isSearching ? 'No services found' : 'No active services right now',
+            style: TextStyle(
+              color: AppTheme.textPrimary(isDark),
+              fontSize: 15, fontWeight: FontWeight.w700)),
+          if (isSearching) ...[
+            const SizedBox(height: 6),
+            Text('Try a different search term',
+              style: TextStyle(
+                  color: AppTheme.textMuted(isDark), fontSize: 13)),
+          ],
+        ],
+      ));
     }
 
     return RefreshIndicator(
