@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -14,7 +15,7 @@ import '../utils/app_theme.dart';
 // OOP Principle: Singleton, Observer, Single Responsibility
 // =============================================================
 
-enum NType { ticketCreated, login, logout, ticketTerminated, swapRequest, swapResponse, general }
+enum NType { ticketCreated, login, logout, ticketTerminated, ticketCalled, swapRequest, swapResponse, general }
 
 // =============================================================
 // NALERT MODEL
@@ -92,6 +93,25 @@ class NotificationService extends ChangeNotifier {
   List<String>        _ticketIds   = [];
 
   final _swapService = SwapService();
+
+  // Tracks which ticket IDs have already triggered the "called" alarm
+  final Set<String> _calledTicketIds = {};
+
+  void onTicketCalled({
+    required String ticketCode,
+    required String counter,
+    required String ticketId,
+  }) {
+    if (_calledTicketIds.contains(ticketId)) return;
+    _calledTicketIds.add(ticketId);
+    _add(NAlert(
+      id:    'called-$ticketId-${DateTime.now().millisecondsSinceEpoch}',
+      type:  NType.ticketCalled,
+      title: '🔔 Your Turn! — $ticketCode',
+      body:  'Please proceed to $counter immediately.',
+    ));
+    _showAlarmBanner(ticketCode: ticketCode, counter: counter);
+  }
   final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
   List<NAlert> get alerts       => List.unmodifiable(_alerts);
@@ -153,14 +173,15 @@ class NotificationService extends ChangeNotifier {
     _ticketIds = [];
     _seenSwapIds.clear();
     _seenRespIds.clear();
+    _calledTicketIds.clear();
   }
 
   void onTicketTerminated(String ticketCode, String serviceName) {
     _add(NAlert(
       id:    'terminated-$ticketCode-${DateTime.now().millisecondsSinceEpoch}',
       type:  NType.ticketTerminated,
-      title: 'Ticket Terminated',
-      body:  'Ticket $ticketCode at $serviceName has been removed from the queue.',
+      title: 'Left Queue',
+      body:  'Ticket $ticketCode has been removed from the $serviceName queue and deleted.',
     ));
   }
 
@@ -284,9 +305,31 @@ class NotificationService extends ChangeNotifier {
     _showBanner(alert);
   }
 
+  // ── 10-second pulsing alarm banner for "called" notifications ─
+  void _showAlarmBanner({required String ticketCode, required String counter}) {
+    final ctx = navigatorKey.currentContext;
+    if (ctx == null) return;
+
+    // Show the alarm for 10 seconds, pulsing 5 times
+    showGeneralDialog(
+      context: ctx,
+      barrierDismissible: true,
+      barrierLabel: 'Dismiss',
+      barrierColor: Colors.black.withOpacity(0.55),
+      transitionDuration: const Duration(milliseconds: 300),
+      pageBuilder: (_, __, ___) => _AlarmOverlay(
+        ticketCode: ticketCode,
+        counter:    counter,
+      ),
+    );
+  }
+
   void _showBanner(NAlert alert) {
     final ctx = navigatorKey.currentContext;
     if (ctx == null) return;
+
+    // "Called" alerts use the full alarm overlay instead of a snackbar
+    if (alert.type == NType.ticketCalled) return;
 
     final color = _colorForType(alert.type);
     final icon  = _iconForType(alert.type);
@@ -331,6 +374,7 @@ class NotificationService extends ChangeNotifier {
       case NType.login:            return const Color(0xFF3B82F6);
       case NType.logout:           return const Color(0xFF6B7280);
       case NType.ticketTerminated: return AppTheme.crimson;
+      case NType.ticketCalled:     return const Color(0xFFFF6B00);
       case NType.swapRequest:      return const Color(0xFF8B5CF6);
       case NType.swapResponse:     return const Color(0xFF2196F3);
       default:                     return const Color(0xFF6B7280);
@@ -343,9 +387,168 @@ class NotificationService extends ChangeNotifier {
       case NType.login:            return Icons.login_rounded;
       case NType.logout:           return Icons.logout_rounded;
       case NType.ticketTerminated: return Icons.cancel_rounded;
+      case NType.ticketCalled:     return Icons.campaign_rounded;
       case NType.swapRequest:      return Icons.swap_horiz_rounded;
       case NType.swapResponse:     return Icons.swap_horizontal_circle_rounded;
       default:                     return Icons.notifications_rounded;
     }
+  }
+}
+// =============================================================
+// ALARM OVERLAY  — shown for 15 seconds when ticket is called
+// Pulses with a glowing ring to grab the user's attention.
+// =============================================================
+class _AlarmOverlay extends StatefulWidget {
+  final String ticketCode;
+  final String counter;
+  const _AlarmOverlay({required this.ticketCode, required this.counter});
+
+  @override
+  State<_AlarmOverlay> createState() => _AlarmOverlayState();
+}
+
+class _AlarmOverlayState extends State<_AlarmOverlay>
+    with SingleTickerProviderStateMixin {
+  late AnimationController _pulseCtrl;
+  late Animation<double>   _pulseAnim;
+  late Timer               _closeTimer;
+  int _secondsLeft = 15;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Pulsing animation — repeating beats throughout the 15 seconds
+    _pulseCtrl = AnimationController(
+      vsync:    this,
+      duration: const Duration(milliseconds: 800),
+    )..repeat(reverse: true);
+
+    _pulseAnim = Tween<double>(begin: 0.85, end: 1.15).animate(
+      CurvedAnimation(parent: _pulseCtrl, curve: Curves.easeInOut),
+    );
+
+    // Countdown timer — close after 15 seconds
+    _closeTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) { t.cancel(); return; }
+      setState(() => _secondsLeft--);
+      if (_secondsLeft <= 0) {
+        t.cancel();
+        if (mounted) Navigator.of(context, rootNavigator: true).pop();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _pulseCtrl.dispose();
+    _closeTimer.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: AnimatedBuilder(
+        animation: _pulseAnim,
+        builder: (_, child) => Transform.scale(
+          scale: _pulseAnim.value,
+          child: child,
+        ),
+        child: Material(
+          color:        Colors.transparent,
+          borderRadius: BorderRadius.circular(28),
+          child: Container(
+            width:   320,
+            padding: const EdgeInsets.all(32),
+            decoration: BoxDecoration(
+              color:        const Color(0xFFFF6B00),
+              borderRadius: BorderRadius.circular(28),
+              boxShadow: [
+                BoxShadow(
+                  color:      const Color(0xFFFF6B00).withOpacity(0.6),
+                  blurRadius: 40,
+                  spreadRadius: 8,
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Bell icon
+                Container(
+                  padding: const EdgeInsets.all(18),
+                  decoration: BoxDecoration(
+                    color:  Colors.white.withOpacity(0.2),
+                    shape:  BoxShape.circle,
+                  ),
+                  child: const Icon(
+                    Icons.campaign_rounded,
+                    color: Colors.white,
+                    size:  48,
+                  ),
+                ),
+                const SizedBox(height: 20),
+                const Text('YOUR TURN!',
+                  style: TextStyle(
+                    color:       Colors.white,
+                    fontSize:    13,
+                    fontWeight:  FontWeight.w900,
+                    letterSpacing: 3,
+                  )),
+                const SizedBox(height: 8),
+                Text(widget.ticketCode,
+                  style: const TextStyle(
+                    color:      Colors.white,
+                    fontSize:   44,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 2,
+                  )),
+                const SizedBox(height: 8),
+                Text(
+                  'Please proceed to\n${widget.counter}',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    color:      Colors.white.withOpacity(0.9),
+                    fontSize:   16,
+                    height:     1.4,
+                  )),
+                const SizedBox(height: 24),
+                // Countdown ring
+                Text(
+                  'Closing in $_secondsLeft s',
+                  style: TextStyle(
+                    color:      Colors.white.withOpacity(0.7),
+                    fontSize:   12,
+                    fontWeight: FontWeight.w600,
+                  )),
+                const SizedBox(height: 16),
+                // Dismiss button
+                GestureDetector(
+                  onTap: () =>
+                      Navigator.of(context, rootNavigator: true).pop(),
+                  child: Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 32, vertical: 12),
+                    decoration: BoxDecoration(
+                      color:        Colors.white.withOpacity(0.2),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                          color: Colors.white.withOpacity(0.4)),
+                    ),
+                    child: const Text('OK, Got it',
+                      style: TextStyle(
+                        color:      Colors.white,
+                        fontSize:   14,
+                        fontWeight: FontWeight.w800,
+                      )),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }

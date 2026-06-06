@@ -94,6 +94,7 @@ class _AlertsPageState extends State<AlertsPage> {
       case NType.login:            return const Color(0xFF3B82F6);
       case NType.logout:           return const Color(0xFF6B7280);
       case NType.ticketTerminated: return AppTheme.crimson;
+      case NType.ticketCalled:     return const Color(0xFFFF6B00);
       case NType.swapRequest:      return const Color(0xFF8B5CF6);
       case NType.swapResponse:     return const Color(0xFF2196F3);
       default:                     return AppTheme.textMuted(isDark);
@@ -106,6 +107,7 @@ class _AlertsPageState extends State<AlertsPage> {
       case NType.login:            return Icons.login_rounded;
       case NType.logout:           return Icons.logout_rounded;
       case NType.ticketTerminated: return Icons.cancel_rounded;
+      case NType.ticketCalled:     return Icons.campaign_rounded;
       case NType.swapRequest:      return Icons.swap_horiz_rounded;
       case NType.swapResponse:     return Icons.swap_horizontal_circle_rounded;
       default:                     return Icons.notifications_rounded;

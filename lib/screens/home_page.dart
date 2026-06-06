@@ -219,6 +219,10 @@ class _DashboardPageState extends State<_DashboardPage> {
   int              _cardIndex = 0;
   late PageController _pageCtrl;
 
+  // Tracks positions from the last load so we can detect when a ticket
+  // reaches position 0 (called to counter) between refreshes.
+  final Map<String, int?> _lastPositions = {};
+
   bool get _dark => ThemeProvider().isDarkMode;
 
   final List<DashTicket> _placeholder = const [
@@ -274,7 +278,7 @@ class _DashboardPageState extends State<_DashboardPage> {
           ticketNumber:     t['code']?.toString()              ?? '—',
           serviceName:      t['service_category']?.toString()  ?? '—',
           serviceCategory:  t['service_category']?.toString()  ?? 'General',
-          status:           t['status']?.toString()            ?? 'pending',
+          status:           t['status']?.toString()            ?? 'active',
           position:         (t['position']          as num?)?.toInt() ?? 0,
           peopleAhead:      (t['people_ahead']      as num?)?.toInt() ?? 0,
           estimatedMinutes: (t['estimated_minutes'] as num?)?.toInt() ?? 0,
@@ -283,6 +287,33 @@ class _DashboardPageState extends State<_DashboardPage> {
           totalInQueue:     (t['total_in_queue']    as num?)?.toInt() ?? 0,
         )).toList();
       });
+
+      // ── Alarm check ────────────────────────────────────────────
+      // Fire a 15-second alarm for any ticket that has just reached
+      // position 0 (i.e. it's their turn at the counter).
+      for (final ticket in _tickets) {
+        final prev = _lastPositions[ticket.id];
+        final curr = ticket.position;
+        // Trigger when: position is now 0, AND it wasn't 0 before
+        // (or this is the very first load and position is already 0)
+        final justCalled = curr == 0 && (prev == null || prev != 0);
+        if (justCalled && ticket.status == 'active') {
+          NotificationService().onTicketCalled(
+            ticketId:   ticket.id,
+            ticketCode: ticket.ticketNumber,
+            counter:    ticket.guichetNumber > 0
+                ? 'Guichet ${ticket.guichetNumber}'
+                : ticket.currentlyServing.isNotEmpty &&
+                  ticket.currentlyServing != '—'
+                    ? ticket.currentlyServing
+                    : 'the counter',
+          );
+        }
+      }
+      // Save positions for the next comparison
+      _lastPositions
+        ..clear()
+        ..addAll({for (final t in _tickets) t.id: t.position});
     } catch (_) {
       if (mounted) setState(() {
         _loading  = false;
@@ -303,16 +334,39 @@ class _DashboardPageState extends State<_DashboardPage> {
         dark:    _dark,
         title:   'Leave Queue',
         message: 'Leave the queue at ${ticket.serviceName}? '
-                 'This cannot be undone.',
+                 'Your ticket will be permanently deleted.',
         confirmLabel: 'Leave',
-        onConfirm: () {
-          setState(() =>
-              _tickets.removeWhere((t) => t.id == ticket.id));
-          NotificationService().onTicketTerminated(
-              ticket.ticketNumber, ticket.serviceName);
-          _showSnack(
-              'Left queue at ${ticket.serviceName}',
-              AppTheme.crimson);
+        onConfirm: () async {
+          // Show loader
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (_) => const Center(
+              child: CircularProgressIndicator(color: AppTheme.crimson)),
+          );
+
+          final result = await _api.deleteTicket(
+            ticketId: ticket.id,
+            userId:   widget.user.userId,
+          );
+          if (!mounted) return;
+          Navigator.pop(context); // dismiss loader
+
+          if (result['success'] == true) {
+            setState(() =>
+                _tickets.removeWhere((t) => t.id == ticket.id));
+            NotificationService().onTicketTerminated(
+                ticket.ticketNumber, ticket.serviceName);
+            _showSnack(
+                'Left queue — ticket ${ticket.ticketNumber} deleted',
+                AppTheme.crimson);
+            _load(); // refresh stats
+          } else {
+            _showSnack(
+              result['message'] as String? ?? 'Could not leave queue.',
+              AppTheme.crimson,
+            );
+          }
         },
       ),
     );
@@ -1107,9 +1161,13 @@ class _DashTicketCard extends StatelessWidget {
                 _row(dark, Icons.record_voice_over_rounded,
                     'Serving',  ticket.currentlyServing),
                 const SizedBox(height: 5),
-                _row(dark, Icons.door_front_door_outlined,
-                    'Guichet',  '${ticket.guichetNumber}'),
-                const SizedBox(height: 5),
+                // Guichet is only revealed when the ticket is called
+                if (ticket.status == 'active' && ticket.peopleAhead == 0)
+                  _row(dark, Icons.door_front_door_outlined,
+                      'Guichet',  '${ticket.guichetNumber}',
+                      highlight: true),
+                if (ticket.status == 'active' && ticket.peopleAhead == 0)
+                  const SizedBox(height: 5),
                 _row(dark, Icons.timer_outlined,
                     'Est. wait', '~${ticket.estimatedMinutes} min',
                     highlight: true),

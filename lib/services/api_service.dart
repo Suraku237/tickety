@@ -135,6 +135,17 @@ class ApiService {
           queryParams: {'user_id': userId}, useAuth: true);
 
   // ----------------------------------------------------------
+  // TICKETS — CHECK IF CALLED (position=0, status=active)
+  // GET /api/tickets/<ticket_id>/called
+  // Polls the backend to see if this ticket has been called to
+  // the counter. Returns { called, counter, deleted }.
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> checkTicketCalled({
+    required String ticketId,
+  }) =>
+      _get('/tickets/$ticketId/called', useAuth: true);
+
+  // ----------------------------------------------------------
   // TICKETS — DELETE (leave queue)
   // ----------------------------------------------------------
   Future<Map<String, dynamic>> deleteTicket({
