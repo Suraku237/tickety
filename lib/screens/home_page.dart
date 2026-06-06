@@ -257,7 +257,7 @@ class _DashboardPageState extends State<_DashboardPage> {
   Future<void> _load() async {
     setState(() { _loading = true; _error = null; });
     try {
-      final data = await _api.getTickets(userId: widget.user.userId);
+      final data = await _api.getTickets(userId: widget.user.userId, email: widget.user.email);
       if (!mounted) return;
       final raw = (data['tickets'] as List? ?? [])
           .cast<Map<String, dynamic>>();
@@ -267,16 +267,27 @@ class _DashboardPageState extends State<_DashboardPage> {
         _suspended = raw.where((t) => t['status'] == 'suspended').length;
         _cancelled = raw.where((t) => t['status'] == 'cancelled').length;
         _loading   = false;
-        _tickets   = _placeholder;
+        _tickets   = raw.map((t) => DashTicket(
+          id:               t['ticket_id']?.toString()         ?? '',
+          ticketNumber:     t['code']?.toString()              ?? '—',
+          serviceName:      t['service_category']?.toString()  ?? '—',
+          serviceCategory:  t['service_category']?.toString()  ?? 'General',
+          status:           t['status']?.toString()            ?? 'pending',
+          position:         (t['position']          as num?)?.toInt() ?? 0,
+          peopleAhead:      (t['people_ahead']      as num?)?.toInt() ?? 0,
+          estimatedMinutes: (t['estimated_minutes'] as num?)?.toInt() ?? 0,
+          currentlyServing: t['currently_serving']?.toString() ?? '—',
+          guichetNumber:    (t['guichet_number']    as num?)?.toInt() ?? 0,
+          totalInQueue:     (t['total_in_queue']    as num?)?.toInt() ?? 0,
+        )).toList();
       });
     } catch (_) {
       if (mounted) setState(() {
-        _loading   = false;
-        _error     = 'Could not load tickets.';
-        _tickets   = _placeholder;
-        _total     = _placeholder.length;
-        _active    = _placeholder
-            .where((t) => t.status == 'active').length;
+        _loading  = false;
+        _error    = 'Could not load tickets.';
+        _tickets  = [];
+        _total    = 0;
+        _active   = 0;
       });
     }
   }
@@ -409,10 +420,137 @@ class _DashboardPageState extends State<_DashboardPage> {
     );
   }
 
-  void _onCodeReceived(String code) {
-    _showSnack('Ticket request sent!', Colors.green);
-    _load();
+  // ----------------------------------------------------------
+  // _onCodeReceived  — central entry point for both QR and URL
+  //
+  // Extraction rules (in order):
+  //   1. If the value contains "/join/"  → extract the token
+  //      that follows it (UUID segment).
+  //   2. If the value looks like a bare UUID (no slashes)
+  //      → treat it directly as a join_token.
+  //   3. Anything else → show an error; do NOT proceed.
+  //
+  // After extraction the token is sent to GET /api/join/<token>
+  // which validates it exists in the DB before we ever issue a
+  // ticket.  This means:
+  //   • A manually typed random string → 404 from backend.
+  //   • An external URL (not /join/) → rejected locally above.
+  //   • A valid Tickety QR/URL → confirmation sheet shown.
+  // ----------------------------------------------------------
+  Future<void> _onCodeReceived(String raw) async {
+    final token = _extractJoinToken(raw);
+    if (token == null) {
+      _showSnack(
+        'Invalid link. Only official Tickety QR codes and links are accepted.',
+        AppTheme.crimson,
+      );
+      return;
+    }
+
+    // Show loading indicator
+    if (!mounted) return;
+    showDialog(
+      context:   context,
+      barrierDismissible: false,
+      builder:   (_) => const Center(child: CircularProgressIndicator(
+          color: AppTheme.crimson)),
+    );
+
+    // Preview the queue — this also validates the token on the server
+    final preview = await _api.previewQueue(joinToken: token);
+    if (!mounted) return;
+    Navigator.pop(context); // dismiss loader
+
+    if (preview['success'] != true) {
+      _showSnack(
+        preview['message'] as String? ??
+            'Invalid QR code or link. Only official Tickety links are accepted.',
+        AppTheme.crimson,
+      );
+      return;
+    }
+
+    // Show confirmation sheet — user must tap "Get Ticket" to confirm
+    final confirmed = await showModalBottomSheet<bool>(
+      context:            context,
+      isScrollControlled: true,
+      backgroundColor:    Colors.transparent,
+      builder: (_) => _JoinConfirmSheet(
+        dark:     _dark,
+        queue:    preview['queue']   as Map<String, dynamic>,
+        service:  preview['service'] as Map<String, dynamic>? ?? {},
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Issue the ticket
+    showDialog(
+      context:   context,
+      barrierDismissible: false,
+      builder:   (_) => const Center(child: CircularProgressIndicator(
+          color: AppTheme.crimson)),
+    );
+
+    final result = await _api.joinQueue(
+      joinToken:          token,
+      customerIdentifier: widget.user.email,
+    );
+    if (!mounted) return;
+    Navigator.pop(context); // dismiss loader
+
+    if (result['success'] == true) {
+      final carried = result['carried_over'] == true;
+      _showSnack(
+        carried
+            ? 'Queue is full for today — your ticket is carried over to tomorrow!'
+            : 'Ticket issued! You are in the queue.',
+        carried ? const Color(0xFFFFA500) : Colors.green,
+      );
+      _load(); // refresh the dashboard
+    } else {
+      _showSnack(
+        result['message'] as String? ?? 'Could not issue ticket.',
+        AppTheme.crimson,
+      );
+    }
   }
+
+  // ----------------------------------------------------------
+  // _extractJoinToken
+  // Returns the UUID join-token from a QR/URL value, or null
+  // if the value is not a recognisable Tickety token/URL.
+  // ----------------------------------------------------------
+  String? _extractJoinToken(String raw) {
+    final trimmed = raw.trim();
+
+    // Case 1 — URL containing "/join/"
+    if (trimmed.contains('/join/')) {
+      try {
+        final uri   = Uri.parse(trimmed);
+        final segs  = uri.pathSegments;
+        final idx   = segs.indexOf('join');
+        if (idx != -1 && idx + 1 < segs.length) {
+          final token = segs[idx + 1];
+          if (_isUuid(token)) return token;
+        }
+      } catch (_) {}
+      return null; // malformed URL with /join/ but no valid UUID
+    }
+
+    // Case 2 — bare UUID (e.g. copied directly from admin panel)
+    if (_isUuid(trimmed)) return trimmed;
+
+    // Case 3 — everything else is rejected
+    return null;
+  }
+
+  static final _uuidRe = RegExp(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$',
+    caseSensitive: false,
+  );
+
+  bool _isUuid(String s) => _uuidRe.hasMatch(s);
 
   // ── Helpers ──────────────────────────────────────────────────
 
@@ -1440,5 +1578,177 @@ class _ConfirmDialog extends StatelessWidget {
         ]),
       ),
     );
+  }
+}
+
+// =============================================================
+// JOIN CONFIRM SHEET
+// Shown after a successful token preview. The user can see the
+// service + queue details and then tap "Get Ticket" to confirm,
+// or dismiss the sheet to cancel. Returns true on confirm.
+// =============================================================
+class _JoinConfirmSheet extends StatelessWidget {
+  final bool                    dark;
+  final Map<String, dynamic>    queue;
+  final Map<String, dynamic>    service;
+
+  const _JoinConfirmSheet({
+    required this.dark,
+    required this.queue,
+    required this.service,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final queueName   = queue['name']    as String? ?? 'Queue';
+    final serviceNm   = service['service_name'] as String? ?? '';
+    final active      = queue['active']  as int? ?? 0;
+    final pending     = queue['pending'] as int? ?? 0;
+    final total       = active + pending;
+    final queueCode   = queue['code']    as String? ?? '';
+    final color       = queue['color']   as String? ?? '#DC0F0F';
+
+    // Parse hex colour to Flutter Color (fallback: crimson)
+    Color qColor = AppTheme.crimson;
+    try {
+      qColor = Color(int.parse(color.replaceFirst('#', '0xFF')));
+    } catch (_) {}
+
+    return Container(
+      decoration: BoxDecoration(
+        color:        AppTheme.card(dark),
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(24, 16, 24, 28),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            // Handle
+            Container(width: 40, height: 4,
+              decoration: BoxDecoration(
+                color:        AppTheme.border(dark),
+                borderRadius: BorderRadius.circular(2))),
+            const SizedBox(height: 20),
+
+            // Icon + header
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                color:        qColor.withOpacity(0.1),
+                shape:        BoxShape.circle,
+                border: Border.all(color: qColor.withOpacity(0.3))),
+              child: Icon(Icons.confirmation_num_rounded,
+                  color: qColor, size: 32)),
+            const SizedBox(height: 14),
+            Text('Join Queue', style: TextStyle(
+              color:      AppTheme.textPrimary(dark),
+              fontSize:   20,
+              fontWeight: FontWeight.w900)),
+            const SizedBox(height: 4),
+            Text('Confirm your spot in the queue below',
+              style: TextStyle(
+                  color: AppTheme.textMuted(dark), fontSize: 13),
+              textAlign: TextAlign.center),
+            const SizedBox(height: 20),
+
+            // Info card
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.all(18),
+              decoration: BoxDecoration(
+                color:        AppTheme.surface(dark),
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: AppTheme.border(dark))),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  if (serviceNm.isNotEmpty) ...[ 
+                    Text(serviceNm.toUpperCase(), style: TextStyle(
+                      color:      AppTheme.textMuted(dark),
+                      fontSize:   9,
+                      fontWeight: FontWeight.w700,
+                      letterSpacing: 1.5)),
+                    const SizedBox(height: 4),
+                  ],
+                  Row(children: [
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
+                      decoration: BoxDecoration(
+                        color:        qColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(8),
+                        border: Border.all(color: qColor.withOpacity(0.25))),
+                      child: Text(queueCode, style: TextStyle(
+                        color:      qColor,
+                        fontSize:   13,
+                        fontWeight: FontWeight.w900))),
+                    const SizedBox(width: 12),
+                    Expanded(child: Text(queueName, style: TextStyle(
+                      color:      AppTheme.textPrimary(dark),
+                      fontSize:   16,
+                      fontWeight: FontWeight.w800),
+                      overflow: TextOverflow.ellipsis)),
+                  ]),
+                  const SizedBox(height: 14),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceAround,
+                    children: [
+                      _infoCell(Icons.people_outline_rounded,
+                          '$total', 'In Queue', dark),
+                      _infoCell(Icons.play_arrow_rounded,
+                          '$active', 'Active', dark),
+                      _infoCell(Icons.hourglass_top_rounded,
+                          '$pending', 'Waiting', dark),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(height: 22),
+
+            // Action buttons
+            Row(children: [
+              Expanded(child: GestureDetector(
+                onTap: () => Navigator.pop(context, false),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color:        AppTheme.surface(dark),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: AppTheme.border(dark))),
+                  child: Center(child: Text('Cancel', style: TextStyle(
+                    color:      AppTheme.textPrimary(dark),
+                    fontWeight: FontWeight.w700)))))),
+              const SizedBox(width: 12),
+              Expanded(child: GestureDetector(
+                onTap: () => Navigator.pop(context, true),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    color:        AppTheme.crimson,
+                    borderRadius: BorderRadius.circular(14)),
+                  child: const Center(child: Text('Get Ticket',
+                    style: TextStyle(
+                      color:      Colors.white,
+                      fontWeight: FontWeight.w800,
+                      fontSize:   15)))))),
+            ]),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Widget _infoCell(IconData icon, String value, String label, bool dark) {
+    return Column(children: [
+      Icon(icon, color: AppTheme.textMuted(dark), size: 16),
+      const SizedBox(height: 4),
+      Text(value, style: TextStyle(
+        color:      AppTheme.textPrimary(dark),
+        fontSize:   16,
+        fontWeight: FontWeight.w900)),
+      Text(label, style: TextStyle(
+          color: AppTheme.textMuted(dark), fontSize: 10)),
+    ]);
   }
 }
