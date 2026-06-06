@@ -13,6 +13,7 @@ import 'services/notification_service.dart';
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ThemeProvider().loadTheme();
+  await NotificationService().init();
   runApp(const TicketyApp());
 }
 
