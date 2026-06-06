@@ -6,6 +6,7 @@ import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
 import '../screens/swap_picker_sheet.dart';
 import 'ticket_scanner.dart';
+import '../services/notification_service.dart';
 
 // =============================================================
 // AUTH USER  (DTO — shared across all pages)
@@ -307,6 +308,8 @@ class _DashboardPageState extends State<_DashboardPage> {
         onConfirm: () {
           setState(() =>
               _tickets.removeWhere((t) => t.id == ticket.id));
+          NotificationService().onTicketTerminated(
+              ticket.ticketNumber, ticket.serviceName);
           _showSnack(
               'Left queue at ${ticket.serviceName}',
               AppTheme.crimson);
@@ -486,7 +489,14 @@ class _DashboardPageState extends State<_DashboardPage> {
     Navigator.pop(context); // dismiss loader
 
     if (result['success'] == true) {
-      final carried = result['carried_over'] == true;
+      final carried    = result['carried_over'] == true;
+      final ticketCode = result['ticket']?['code']?.toString()
+                      ?? result['code']?.toString() ?? 'your ticket';
+      final svcName    = result['ticket']?['service_name']?.toString()
+                      ?? result['service_name']?.toString() ?? 'the service';
+
+      NotificationService().onTicketCreated(ticketCode, svcName);
+
       _showSnack(
         carried
             ? 'Queue is full for today — your ticket is carried over to tomorrow!'

@@ -5,6 +5,7 @@ import 'screens/main_shell.dart';
 import 'services/session_service.dart';
 import 'utils/theme_provider.dart';
 import 'utils/app_theme.dart';
+import 'services/notification_service.dart';
 
 // =============================================================
 // ENTRY POINT
@@ -30,6 +31,7 @@ class TicketyApp extends StatelessWidget {
         return MaterialApp(
           title:                      'TICKETY',
           debugShowCheckedModeBanner: false,
+          navigatorKey: NotificationService().navigatorKey,
           theme:     AppTheme.lightTheme(),
           darkTheme: AppTheme.darkTheme(),
           themeMode: isDark ? ThemeMode.dark : ThemeMode.light,

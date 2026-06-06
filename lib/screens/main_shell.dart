@@ -9,6 +9,7 @@ import 'services_page.dart';
 import 'alerts_page.dart';
 import 'profile_page.dart';
 import 'login_page.dart';
+import '../services/notification_service.dart';
 
 // =============================================================
 // NAV ITEM MODEL
@@ -92,20 +93,48 @@ class _MainShellState extends State<MainShell>
     super.initState();
     _currentIndex = widget.initialIndex;
     ThemeProvider().addListener(_onThemeChanged);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      NotificationService().onLogin(widget.user.username);
+      _loadTicketIds();
+    });
   }
 
+  List<String> _ticketIds = [];
+
   void _onThemeChanged() { if (mounted) setState(() {}); }
+
+  Future<void> _loadTicketIds() async {
+    try {
+      final data = await _api.getTickets(
+        userId:    widget.user.userId,
+        email:     widget.user.email,
+      );
+      if (!mounted) return;
+      final raw = (data['tickets'] as List? ?? []).cast<Map<String, dynamic>>();
+      final ids = raw.map((t) => t['ticket_id']?.toString() ?? '').where((s) => s.isNotEmpty).toList();
+      setState(() => _ticketIds = ids);
+      NotificationService().startPolling(ids);
+    } catch (_) {}
+  }
 
   @override
   void dispose() {
     ThemeProvider().removeListener(_onThemeChanged);
+    NotificationService().stopPolling();
     super.dispose();
   }
 
-  void _switchTo(int index) => setState(() => _currentIndex = index);
+  void _switchTo(int index) {
+    setState(() => _currentIndex = index);
+    if (index == 2) {
+      // Refresh incoming swap requests when user opens Alerts tab
+      NotificationService().refresh(_ticketIds);
+    }
+  }
 
   // Owned here and passed down to ProfilePage
   Future<void> _logout() async {
+    NotificationService().onLogout();
     await _session.clear();
     _api.clearToken();
     if (!mounted) return;
@@ -134,7 +163,7 @@ class _MainShellState extends State<MainShell>
           // Tab 1 — Services
           ServicesPage(user: widget.user),
           // Tab 2 — Alerts
-          const AlertsPage(),
+          AlertsPage(userTicketIds: _ticketIds),
           // Tab 3 — Profile (owns theme, about, logout)
           ProfilePage(user: widget.user, onLogout: _logout),
         ],
@@ -176,10 +205,14 @@ class _MainShellState extends State<MainShell>
     final item     = _navItems[index];
     final isActive = _currentIndex == index;
 
+    final isAlerts  = index == 2;
+    final unread    = isAlerts ? NotificationService().unreadCount : 0;
+
     return GestureDetector(
       onTap:    () => _switchTo(index),
       behavior: HitTestBehavior.opaque,
-      child: AnimatedContainer(
+      child: Stack(children: [
+      AnimatedContainer(
         duration: const Duration(milliseconds: 250),
         padding: EdgeInsets.symmetric(
           horizontal: isActive ? 16 : 12,
@@ -212,6 +245,14 @@ class _MainShellState extends State<MainShell>
                   : const SizedBox.shrink()),
           ]),
       ),
+      // Unread badge
+      if (unread > 0) Positioned(
+        top: 2, right: 2,
+        child: Container(
+          width: 8, height: 8,
+          decoration: const BoxDecoration(
+            color: AppTheme.crimson, shape: BoxShape.circle))),
+      ]),
     );
   }
 }
