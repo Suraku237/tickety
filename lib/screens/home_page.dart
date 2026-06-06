@@ -4,6 +4,7 @@ import '../services/api_service.dart';
 import '../services/session_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
+import '../screens/swap_picker_sheet.dart';
 import 'ticket_scanner.dart';
 
 // =============================================================
@@ -319,14 +320,13 @@ class _DashboardPageState extends State<_DashboardPage> {
       context:            context,
       isScrollControlled: true,
       backgroundColor:    Colors.transparent,
-      builder: (_) => _SwapPickerSheet(
-        dark:         _dark,
-        sourceTicket: ticket,
-        onSend: (targetTicket) {
-          Navigator.pop(context);
-          _showSnack(
-              'Swap request sent to $targetTicket',
-              const Color(0xFFFFA500));
+      builder: (_) => SwapPickerSheet(
+        sourceTicketId:   ticket.id,
+        sourceTicketCode: ticket.ticketNumber,
+        serviceName:      ticket.serviceName,
+        onSwapSent: () {
+          // Refresh the dashboard so the sent-request badge appears
+          _load();
         },
       ),
     );
@@ -422,20 +422,6 @@ class _DashboardPageState extends State<_DashboardPage> {
 
   // ----------------------------------------------------------
   // _onCodeReceived  — central entry point for both QR and URL
-  //
-  // Extraction rules (in order):
-  //   1. If the value contains "/join/"  → extract the token
-  //      that follows it (UUID segment).
-  //   2. If the value looks like a bare UUID (no slashes)
-  //      → treat it directly as a join_token.
-  //   3. Anything else → show an error; do NOT proceed.
-  //
-  // After extraction the token is sent to GET /api/join/<token>
-  // which validates it exists in the DB before we ever issue a
-  // ticket.  This means:
-  //   • A manually typed random string → 404 from backend.
-  //   • An external URL (not /join/) → rejected locally above.
-  //   • A valid Tickety QR/URL → confirmation sheet shown.
   // ----------------------------------------------------------
   Future<void> _onCodeReceived(String raw) async {
     final token = _extractJoinToken(raw);
@@ -518,8 +504,6 @@ class _DashboardPageState extends State<_DashboardPage> {
 
   // ----------------------------------------------------------
   // _extractJoinToken
-  // Returns the UUID join-token from a QR/URL value, or null
-  // if the value is not a recognisable Tickety token/URL.
   // ----------------------------------------------------------
   String? _extractJoinToken(String raw) {
     final trimmed = raw.trim();
@@ -1300,204 +1284,6 @@ class _ErrorStrip extends StatelessWidget {
         Expanded(child: Text(message, style: const TextStyle(
           color: AppTheme.crimson, fontSize: 13))),
       ]));
-  }
-}
-
-// =============================================================
-// SWAP PICKER SHEET
-// =============================================================
-class _SwapPickerSheet extends StatefulWidget {
-  final bool                      dark;
-  final DashTicket                sourceTicket;
-  final void Function(String)     onSend;
-
-  const _SwapPickerSheet({
-    required this.dark,
-    required this.sourceTicket,
-    required this.onSend,
-  });
-
-  @override
-  State<_SwapPickerSheet> createState() => _SwapPickerSheetState();
-}
-
-class _SwapPickerSheetState extends State<_SwapPickerSheet> {
-
-  final List<Map<String, String>> _members = const [
-    {'ticket': 'A041', 'position': '1', 'wait': '2 min'},
-    {'ticket': 'A043', 'position': '2', 'wait': '6 min'},
-    {'ticket': 'A049', 'position': '4', 'wait': '18 min'},
-    {'ticket': 'A052', 'position': '5', 'wait': '24 min'},
-    {'ticket': 'A055', 'position': '6', 'wait': '30 min'},
-  ];
-
-  String? _selected;
-
-  @override
-  Widget build(BuildContext context) {
-    final dark = widget.dark;
-    return Container(
-      decoration: BoxDecoration(
-        color:        AppTheme.card(dark),
-        borderRadius: const BorderRadius.vertical(
-            top: Radius.circular(28))),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-          child: Column(mainAxisSize: MainAxisSize.min, children: [
-            Container(width: 40, height: 4,
-              decoration: BoxDecoration(
-                color:        AppTheme.border(dark),
-                borderRadius: BorderRadius.circular(2))),
-            const SizedBox(height: 20),
-            Row(children: [
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color:        const Color(0xFF2196F3).withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(12),
-                  border: Border.all(
-                      color: const Color(0xFF2196F3).withOpacity(0.3))),
-                child: const Icon(Icons.swap_horiz_rounded,
-                    color: Color(0xFF2196F3), size: 22)),
-              const SizedBox(width: 14),
-              Expanded(child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Request Swap', style: TextStyle(
-                    color:      AppTheme.textPrimary(dark),
-                    fontSize:   17,
-                    fontWeight: FontWeight.w900)),
-                  Text(
-                    'Choose who to swap with at '
-                    '${widget.sourceTicket.serviceName}',
-                    style: TextStyle(
-                        color: AppTheme.textMuted(dark), fontSize: 12)),
-                ])),
-            ]),
-            const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 14, vertical: 10),
-              decoration: BoxDecoration(
-                color:        AppTheme.surface(dark),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: AppTheme.border(dark))),
-              child: Row(children: [
-                Text('Your ticket:', style: TextStyle(
-                    color: AppTheme.textMuted(dark), fontSize: 12)),
-                const SizedBox(width: 8),
-                Text(widget.sourceTicket.ticketNumber,
-                  style: const TextStyle(
-                    color:      AppTheme.crimson,
-                    fontSize:   13,
-                    fontWeight: FontWeight.w800)),
-                const Spacer(),
-                const Icon(Icons.swap_horiz_rounded,
-                    color: AppTheme.crimson, size: 16),
-                const SizedBox(width: 6),
-                Text('Select target', style: TextStyle(
-                    color: AppTheme.textMuted(dark), fontSize: 12)),
-              ])),
-            const SizedBox(height: 12),
-            Divider(color: AppTheme.border(dark)),
-            const SizedBox(height: 8),
-            SizedBox(
-              height: 200,
-              child: ListView.separated(
-                itemCount: _members.length,
-                separatorBuilder: (_, __) =>
-                    const SizedBox(height: 8),
-                itemBuilder: (_, i) {
-                  final m          = _members[i];
-                  final ticket     = m['ticket']!;
-                  final isSelected = _selected == ticket;
-                  return GestureDetector(
-                    onTap: () =>
-                        setState(() => _selected = ticket),
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 200),
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 14, vertical: 12),
-                      decoration: BoxDecoration(
-                        color: isSelected
-                            ? const Color(0xFF2196F3).withOpacity(0.08)
-                            : AppTheme.surface(dark),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: isSelected
-                              ? const Color(0xFF2196F3).withOpacity(0.5)
-                              : AppTheme.border(dark),
-                          width: isSelected ? 1.5 : 1)),
-                      child: Row(children: [
-                        Container(
-                          width: 42, height: 42,
-                          decoration: BoxDecoration(
-                            color: isSelected
-                                ? const Color(0xFF2196F3).withOpacity(0.12)
-                                : AppTheme.card(dark),
-                            borderRadius: BorderRadius.circular(11),
-                            border: Border.all(
-                              color: isSelected
-                                  ? const Color(0xFF2196F3).withOpacity(0.3)
-                                  : AppTheme.border(dark))),
-                          child: Center(child: Text(ticket,
-                            style: TextStyle(
-                              color: isSelected
-                                  ? const Color(0xFF2196F3)
-                                  : AppTheme.textPrimary(dark),
-                              fontSize:   11,
-                              fontWeight: FontWeight.w800)))),
-                        const SizedBox(width: 12),
-                        Expanded(child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text('Position ${m['position']}',
-                              style: TextStyle(
-                                color:      AppTheme.textPrimary(dark),
-                                fontSize:   13,
-                                fontWeight: FontWeight.w700)),
-                            Text('Est. wait: ${m['wait']}',
-                              style: TextStyle(
-                                  color:    AppTheme.textMuted(dark),
-                                  fontSize: 12)),
-                          ])),
-                        if (isSelected)
-                          const Icon(Icons.check_circle_rounded,
-                              color: Color(0xFF2196F3), size: 20),
-                      ])));
-                },
-              ),
-            ),
-            const SizedBox(height: 16),
-            SizedBox(
-              width: double.infinity, height: 52,
-              child: ElevatedButton(
-                onPressed: _selected == null
-                    ? null : () => widget.onSend(_selected!),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor:         _selected != null
-                      ? const Color(0xFF2196F3)
-                      : AppTheme.border(dark),
-                  disabledBackgroundColor: AppTheme.border(dark),
-                  elevation: 0,
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(14))),
-                child: Text(
-                  _selected != null
-                      ? 'Send Swap Request to $_selected'
-                      : 'Select a ticket first',
-                  style: TextStyle(
-                    color: _selected != null
-                        ? Colors.white
-                        : AppTheme.textMuted(dark),
-                    fontSize:   14,
-                    fontWeight: FontWeight.w800)),
-              )),
-          ]),
-        ),
-      ),
-    );
   }
 }
 
