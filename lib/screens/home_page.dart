@@ -225,23 +225,11 @@ class _DashboardPageState extends State<_DashboardPage> {
 
   bool get _dark => ThemeProvider().isDarkMode;
 
-  final List<DashTicket> _placeholder = const [
-    DashTicket(
-      id: '1', ticketNumber: 'A047',
-      serviceName: 'Main Counter', serviceCategory: 'Banking',
-      status: 'active', position: 3, peopleAhead: 2,
-      estimatedMinutes: 12, currentlyServing: 'A045',
-      guichetNumber: 2, totalInQueue: 18,
-    ),
-    DashTicket(
-      id: '2', ticketNumber: 'B012',
-      serviceName: 'Customer Support', serviceCategory: 'Telecom',
-      status: 'active', position: 1, peopleAhead: 0,
-      estimatedMinutes: 3, currentlyServing: 'B011',
-      guichetNumber: 1, totalInQueue: 5,
-      hasSwapRequest: true, swapRequestFrom: 'B015',
-    ),
-  ];
+  // Helper: mirrors the card label logic — anything not suspended/cancelled/served counts as active
+  static bool _isActive(Map<String, dynamic> t) {
+    final s = t['status']?.toString() ?? '';
+    return s != 'suspended' && s != 'cancelled' && s != 'served';
+  }
 
   @override
   void initState() {
@@ -269,7 +257,7 @@ class _DashboardPageState extends State<_DashboardPage> {
           .cast<Map<String, dynamic>>();
       setState(() {
         _total     = raw.length;
-        _active    = raw.where((t) => t['status'] == 'active').length;
+        _active    = raw.where((t) => _isActive(t)).length;
         _suspended = raw.where((t) => t['status'] == 'suspended').length;
         _cancelled = raw.where((t) => t['status'] == 'cancelled').length;
         _loading   = false;

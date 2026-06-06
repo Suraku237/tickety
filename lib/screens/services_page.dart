@@ -5,6 +5,46 @@ import '../utils/theme_provider.dart';
 import 'home_page.dart';
 
 // =============================================================
+// SCHEDULE INFO  (fetched from /schedule/status per service)
+// =============================================================
+class ScheduleInfo {
+  final bool   isOpen;
+  final String openingTime;   // "HH:MM:SS"
+  final String closingTime;   // "HH:MM:SS"
+  final int    avgDuration;   // minutes per ticket
+
+  const ScheduleInfo({
+    required this.isOpen,
+    required this.openingTime,
+    required this.closingTime,
+    required this.avgDuration,
+  });
+
+  factory ScheduleInfo.fromMap(Map<String, dynamic> m) => ScheduleInfo(
+    isOpen:      m['is_open']      as bool?   ?? false,
+    openingTime: m['opening_time'] as String? ?? '',
+    closingTime: m['closing_time'] as String? ?? '',
+    avgDuration: (m['avg_duration'] as num?)?.toInt() ?? 0,
+  );
+
+  /// Format "HH:MM:SS" or "HH:MM" → "H:MM AM/PM"
+  static String fmt(String t) {
+    if (t.isEmpty) return '—';
+    try {
+      final p    = t.split(':');
+      int h      = int.parse(p[0]);
+      final m    = p.length > 1 ? p[1].padLeft(2, '0') : '00';
+      final ampm = h >= 12 ? 'PM' : 'AM';
+      h = h % 12;
+      if (h == 0) h = 12;
+      return '$h:$m $ampm';
+    } catch (_) {
+      return t;
+    }
+  }
+}
+
+// =============================================================
 // SERVICE MODEL  (built from ticket data)
 // =============================================================
 class ServiceEntry {
@@ -15,6 +55,7 @@ class ServiceEntry {
   final String? lastTicketNumber;
   final String? lastTicketStatus;
   final DateTime? lastVisited;
+  final ScheduleInfo? scheduleInfo;   // null until fetched
 
   const ServiceEntry({
     required this.id,
@@ -24,7 +65,19 @@ class ServiceEntry {
     this.lastTicketNumber,
     this.lastTicketStatus,
     this.lastVisited,
+    this.scheduleInfo,
   });
+
+  ServiceEntry copyWithSchedule(ScheduleInfo info) => ServiceEntry(
+    id:               id,
+    name:             name,
+    totalTickets:     totalTickets,
+    activeTickets:    activeTickets,
+    lastTicketNumber: lastTicketNumber,
+    lastTicketStatus: lastTicketStatus,
+    lastVisited:      lastVisited,
+    scheduleInfo:     info,
+  );
 
   /// Build a list of ServiceEntry from raw ticket list.
   /// Only services that have at least one ticket appear.
@@ -38,13 +91,18 @@ class ServiceEntry {
     }
 
     return grouped.entries.map((e) {
-      final list   = e.value;
-      final active = list.where((t) => t['status'] == 'active').length;
+      final list = e.value;
 
-      // Most recent ticket
+      // Match home page logic: anything not suspended/cancelled/served = active
+      final active = list.where((t) {
+        final s = t['status']?.toString() ?? '';
+        return s != 'suspended' && s != 'cancelled' && s != 'served';
+      }).length;
+
+      // Ticket model uses 'issued_at', not 'created_at'
       list.sort((a, b) {
-        final da = DateTime.tryParse(a['created_at']?.toString() ?? '') ?? DateTime(0);
-        final db = DateTime.tryParse(b['created_at']?.toString() ?? '') ?? DateTime(0);
+        final da = DateTime.tryParse(a['issued_at']?.toString() ?? '') ?? DateTime(0);
+        final db = DateTime.tryParse(b['issued_at']?.toString() ?? '') ?? DateTime(0);
         return db.compareTo(da);
       });
 
@@ -57,7 +115,7 @@ class ServiceEntry {
         activeTickets:    active,
         lastTicketNumber: last['code']?.toString(),
         lastTicketStatus: last['status']?.toString(),
-        lastVisited:      DateTime.tryParse(last['created_at']?.toString() ?? ''),
+        lastVisited:      DateTime.tryParse(last['issued_at']?.toString() ?? ''),
       );
     }).toList()
       ..sort((a, b) => (b.lastVisited ?? DateTime(0))
@@ -124,16 +182,37 @@ class _ServicesPageState extends State<ServicesPage>
       final raw = (data['tickets'] as List? ?? [])
           .cast<Map<String, dynamic>>();
 
+      final services = ServiceEntry.fromTickets(raw);
+
       setState(() {
-        _services = ServiceEntry.fromTickets(raw);
+        _services = services;
         _loading  = false;
       });
+
+      // Fetch schedule for each service in parallel (non-blocking)
+      _loadSchedules(services);
     } catch (e) {
       if (mounted) setState(() {
         _error   = 'Could not load services.';
         _loading = false;
       });
     }
+  }
+
+  Future<void> _loadSchedules(List<ServiceEntry> services) async {
+    await Future.wait(services.map((s) async {
+      try {
+        final res = await _api.getScheduleStatus(serviceId: s.id);
+        if (!mounted) return;
+        if (res['success'] == true) {
+          final info = ScheduleInfo.fromMap(res);
+          setState(() {
+            final idx = _services.indexWhere((e) => e.id == s.id);
+            if (idx != -1) _services[idx] = _services[idx].copyWithSchedule(info);
+          });
+        }
+      } catch (_) {}
+    }));
   }
 
   List<ServiceEntry> get _filtered {
@@ -506,7 +585,90 @@ class _ServicesPageState extends State<ServicesPage>
                       fontWeight: FontWeight.w800)),
                 ])),
             ],
+
+            // ── Schedule info ────────────────────────────
+            const SizedBox(height: 10),
+            _buildScheduleRow(s),
           ]),
+      ),
+    );
+  }
+
+  Widget _buildScheduleRow(ServiceEntry s) {
+    final sch = s.scheduleInfo;
+
+    // Still loading schedule
+    if (sch == null) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(
+          color:        AppTheme.surface(isDark),
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: AppTheme.border(isDark))),
+        child: Row(children: [
+          Icon(Icons.schedule_rounded,
+              color: AppTheme.textMuted(isDark), size: 14),
+          const SizedBox(width: 8),
+          Text('Loading schedule…',
+              style: TextStyle(
+                  color: AppTheme.textMuted(isDark), fontSize: 12)),
+        ]),
+      );
+    }
+
+    final isOpen    = sch.isOpen;
+    final openColor = isOpen ? Colors.green : AppTheme.crimson;
+    final openLabel = isOpen ? 'OPEN' : 'CLOSED';
+    final openIcon  = isOpen
+        ? Icons.check_circle_outline_rounded
+        : Icons.cancel_outlined;
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+      decoration: BoxDecoration(
+        color:        openColor.withOpacity(0.06),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: openColor.withOpacity(0.25))),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // Open/closed status + hours
+          Row(children: [
+            Icon(openIcon, color: openColor, size: 14),
+            const SizedBox(width: 6),
+            Text(openLabel, style: TextStyle(
+              color:      openColor,
+              fontSize:   11,
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.8)),
+            const Spacer(),
+            Icon(Icons.access_time_rounded,
+                color: AppTheme.textMuted(isDark), size: 12),
+            const SizedBox(width: 4),
+            Text(
+              '${ScheduleInfo.fmt(sch.openingTime)} – ${ScheduleInfo.fmt(sch.closingTime)}',
+              style: TextStyle(
+                color:      AppTheme.textPrimary(isDark),
+                fontSize:   11,
+                fontWeight: FontWeight.w700)),
+          ]),
+          // Avg wait (only show if meaningful)
+          if (sch.avgDuration > 0) ...[
+            const SizedBox(height: 6),
+            Row(children: [
+              Icon(Icons.timer_outlined,
+                  color: AppTheme.textMuted(isDark), size: 12),
+              const SizedBox(width: 6),
+              Text('Avg. wait time: ', style: TextStyle(
+                  color: AppTheme.textMuted(isDark), fontSize: 11)),
+              Text('~${sch.avgDuration} min per ticket',
+                style: TextStyle(
+                  color:      AppTheme.textPrimary(isDark),
+                  fontSize:   11,
+                  fontWeight: FontWeight.w700)),
+            ]),
+          ],
+        ],
       ),
     );
   }

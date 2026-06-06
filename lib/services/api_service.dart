@@ -176,6 +176,17 @@ class ApiService {
   }) =>
       _post('/delete-account', {'user_id': userId}, useAuth: true);
 
+  // ----------------------------------------------------------
+  // SCHEDULE — GET CURRENT STATUS FOR A SERVICE
+  // GET /api/schedule/status?service_id=<id>
+  // Returns: is_open, opening_time, closing_time, avg_duration
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> getScheduleStatus({
+    required String serviceId,
+  }) =>
+      _get('/schedule/status',
+          queryParams: {'service_id': serviceId}, useAuth: true);
+
   // ==========================================================
   // SWAP ENDPOINTS
   // ==========================================================
