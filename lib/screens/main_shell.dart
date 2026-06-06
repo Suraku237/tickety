@@ -132,7 +132,7 @@ class _MainShellState extends State<MainShell>
           // Tab 0 — Home dashboard
           HomePage(user: widget.user, onNavigate: _switchTo),
           // Tab 1 — Services
-          const ServicesPage(),
+          ServicesPage(user: widget.user),
           // Tab 2 — Alerts
           const AlertsPage(),
           // Tab 3 — Profile (owns theme, about, logout)

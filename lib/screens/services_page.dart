@@ -1,48 +1,76 @@
 import 'package:flutter/material.dart';
+import '../services/api_service.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
+import 'home_page.dart';
 
 // =============================================================
-// SERVICE MODEL
+// SERVICE MODEL  (built from ticket data)
 // =============================================================
 class ServiceEntry {
   final String  id;
   final String  name;
-  final String  category;
-  final String  location;
-  final int     totalVisits;
-  final String  lastVisited;
-  final int     avgWaitMinutes;
-  final String  openTime;
-  final String  closeTime;
-  final bool    isOpenNow;
-  final String? activeTicket;
+  final int     totalTickets;
+  final int     activeTickets;
+  final String? lastTicketNumber;
+  final String? lastTicketStatus;
+  final DateTime? lastVisited;
 
   const ServiceEntry({
     required this.id,
     required this.name,
-    required this.category,
-    required this.location,
-    required this.totalVisits,
-    required this.lastVisited,
-    required this.avgWaitMinutes,
-    required this.openTime,
-    required this.closeTime,
-    required this.isOpenNow,
-    this.activeTicket,
+    required this.totalTickets,
+    required this.activeTickets,
+    this.lastTicketNumber,
+    this.lastTicketStatus,
+    this.lastVisited,
   });
+
+  /// Build a list of ServiceEntry from raw ticket list.
+  /// Only services that have at least one ticket appear.
+  static List<ServiceEntry> fromTickets(List<Map<String, dynamic>> tickets) {
+    final Map<String, List<Map<String, dynamic>>> grouped = {};
+
+    for (final t in tickets) {
+      // service_category = bank/org name, service_name = queue name
+      final key = (t['service_category'] ?? t['service_name'] ?? 'Unknown').toString();
+      grouped.putIfAbsent(key, () => []).add(t);
+    }
+
+    return grouped.entries.map((e) {
+      final list   = e.value;
+      final active = list.where((t) => t['status'] == 'active').length;
+
+      // Most recent ticket
+      list.sort((a, b) {
+        final da = DateTime.tryParse(a['created_at']?.toString() ?? '') ?? DateTime(0);
+        final db = DateTime.tryParse(b['created_at']?.toString() ?? '') ?? DateTime(0);
+        return db.compareTo(da);
+      });
+
+      final last = list.first;
+
+      return ServiceEntry(
+        id:               last['service_id']?.toString() ?? e.key,
+        name:             e.key, // service_category (bank/org name)
+        totalTickets:     list.length,
+        activeTickets:    active,
+        lastTicketNumber: last['code']?.toString(),
+        lastTicketStatus: last['status']?.toString(),
+        lastVisited:      DateTime.tryParse(last['created_at']?.toString() ?? ''),
+      );
+    }).toList()
+      ..sort((a, b) => (b.lastVisited ?? DateTime(0))
+          .compareTo(a.lastVisited ?? DateTime(0)));
+  }
 }
 
 // =============================================================
-// SERVICES PAGE
-// Responsibilities:
-//   - Show all services the user has visited
-//   - Display avg wait time, open/close hours, active ticket
-//   - Filter by open / closed
-// OOP Principle: Single Responsibility
+// SERVICES PAGE  — dynamic, loaded from real ticket data
 // =============================================================
 class ServicesPage extends StatefulWidget {
-  const ServicesPage({super.key});
+  final AuthUser user;
+  const ServicesPage({super.key, required this.user});
 
   @override
   State<ServicesPage> createState() => _ServicesPageState();
@@ -51,60 +79,28 @@ class ServicesPage extends StatefulWidget {
 class _ServicesPageState extends State<ServicesPage>
     with SingleTickerProviderStateMixin {
 
+  final _api = ApiService();
+
   bool get isDark => ThemeProvider().isDarkMode;
   late TabController _tabController;
+
+  List<ServiceEntry> _services = [];
+  bool  _loading = true;
+  String? _error;
   String _filter = 'all';
-
-  final List<ServiceEntry> _services = const [
-    ServiceEntry(
-      id: '1', name: 'Main Counter', category: 'Banking',
-      location: 'Agence Centrale, Yaoundé',
-      totalVisits: 8, lastVisited: 'Today',
-      avgWaitMinutes: 14, openTime: '08:00', closeTime: '17:00',
-      isOpenNow: true, activeTicket: 'A047',
-    ),
-    ServiceEntry(
-      id: '2', name: 'Customer Support', category: 'Telecom',
-      location: 'MTN Centre, Rue Joss',
-      totalVisits: 3, lastVisited: 'Today',
-      avgWaitMinutes: 8, openTime: '09:00', closeTime: '18:00',
-      isOpenNow: true, activeTicket: 'B012',
-    ),
-    ServiceEntry(
-      id: '3', name: 'Document Office', category: 'Government',
-      location: 'Hôtel de Ville, Yaoundé',
-      totalVisits: 2, lastVisited: 'Yesterday',
-      avgWaitMinutes: 32, openTime: '07:30', closeTime: '15:30',
-      isOpenNow: false,
-    ),
-    ServiceEntry(
-      id: '4', name: 'Emergency Ward', category: 'Health',
-      location: 'Hôpital Central, Yaoundé',
-      totalVisits: 1, lastVisited: '3 days ago',
-      avgWaitMinutes: 45, openTime: '00:00', closeTime: '23:59',
-      isOpenNow: true,
-    ),
-  ];
-
-  List<ServiceEntry> get _filtered {
-    switch (_filter) {
-      case 'open':   return _services.where((s) => s.isOpenNow).toList();
-      case 'closed': return _services.where((s) => !s.isOpenNow).toList();
-      default:       return _services;
-    }
-  }
 
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 3, vsync: this);
+    _tabController = TabController(length: 2, vsync: this);
     _tabController.addListener(() {
       if (!_tabController.indexIsChanging) {
         setState(() =>
-            _filter = ['all', 'open', 'closed'][_tabController.index]);
+            _filter = ['all', 'active'][_tabController.index]);
       }
     });
     ThemeProvider().addListener(_onThemeChanged);
+    _load();
   }
 
   void _onThemeChanged() { if (mounted) setState(() {}); }
@@ -116,23 +112,49 @@ class _ServicesPageState extends State<ServicesPage>
     super.dispose();
   }
 
-  Color    _cc(String c) {
-    switch (c) {
-      case 'Banking':    return const Color(0xFF2196F3);
-      case 'Telecom':    return const Color(0xFF9C27B0);
-      case 'Government': return const Color(0xFF4CAF50);
-      case 'Health':     return const Color(0xFFFF5722);
-      default:           return AppTheme.crimson;
+  Future<void> _load() async {
+    setState(() { _loading = true; _error = null; });
+    try {
+      final data = await _api.getTickets(userId: widget.user.userId, email: widget.user.email);
+      if (!mounted) return;
+
+      final raw = (data['tickets'] as List? ?? [])
+          .cast<Map<String, dynamic>>();
+
+      setState(() {
+        _services = ServiceEntry.fromTickets(raw);
+        _loading  = false;
+      });
+    } catch (e) {
+      if (mounted) setState(() {
+        _error   = 'Could not load services.';
+        _loading = false;
+      });
     }
   }
 
-  IconData _ci(String c) {
-    switch (c) {
-      case 'Banking':    return Icons.account_balance_rounded;
-      case 'Telecom':    return Icons.cell_tower_rounded;
-      case 'Government': return Icons.account_balance_wallet_rounded;
-      case 'Health':     return Icons.local_hospital_rounded;
-      default:           return Icons.store_rounded;
+  List<ServiceEntry> get _filtered {
+    if (_filter == 'active') {
+      return _services.where((s) => s.activeTickets > 0).toList();
+    }
+    return _services;
+  }
+
+  String _timeAgo(DateTime? dt) {
+    if (dt == null) return '—';
+    final diff = DateTime.now().difference(dt);
+    if (diff.inMinutes < 1)  return 'Just now';
+    if (diff.inHours   < 1)  return '${diff.inMinutes}m ago';
+    if (diff.inDays    < 1)  return '${diff.inHours}h ago';
+    if (diff.inDays    == 1) return 'Yesterday';
+    return '${diff.inDays} days ago';
+  }
+
+  Color _statusColor(String? s) {
+    switch (s) {
+      case 'active':    return Colors.green;
+      case 'suspended': return const Color(0xFFFFA500);
+      default:          return AppTheme.crimson;
     }
   }
 
@@ -151,6 +173,8 @@ class _ServicesPageState extends State<ServicesPage>
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+
+              // ── Header ────────────────────────────────────
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 20, 24, 0),
                 child: Row(children: [
@@ -162,36 +186,43 @@ class _ServicesPageState extends State<ServicesPage>
                         fontSize:   24,
                         fontWeight: FontWeight.w900,
                         letterSpacing: -0.5)),
-                      Text('${_services.length} services visited',
+                      Text(
+                        _loading
+                          ? 'Loading…'
+                          : '${_services.length} service${_services.length != 1 ? "s" : ""} visited',
                         style: TextStyle(
                             color: AppTheme.textMuted(isDark),
                             fontSize: 12)),
                     ],
                   )),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 12, vertical: 6),
-                    decoration: BoxDecoration(
-                      color:        Colors.green.withOpacity(0.1),
-                      borderRadius: BorderRadius.circular(20),
-                      border: Border.all(
-                          color: Colors.green.withOpacity(0.3))),
-                    child: Row(children: [
-                      Container(width: 6, height: 6,
-                        decoration: const BoxDecoration(
-                          color: Colors.green,
-                          shape: BoxShape.circle)),
-                      const SizedBox(width: 5),
-                      Text(
-                        '${_services.where((s) => s.isOpenNow).length} open',
-                        style: const TextStyle(
-                          color:      Colors.green,
-                          fontSize:   11,
-                          fontWeight: FontWeight.w700)),
-                    ])),
+                  // Active badge
+                  if (!_loading && _services.isNotEmpty)
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 12, vertical: 6),
+                      decoration: BoxDecoration(
+                        color:        Colors.green.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(20),
+                        border: Border.all(
+                            color: Colors.green.withOpacity(0.3))),
+                      child: Row(children: [
+                        Container(width: 6, height: 6,
+                          decoration: const BoxDecoration(
+                            color: Colors.green,
+                            shape: BoxShape.circle)),
+                        const SizedBox(width: 5),
+                        Text(
+                          '${_services.where((s) => s.activeTickets > 0).length} active',
+                          style: const TextStyle(
+                            color:      Colors.green,
+                            fontSize:   11,
+                            fontWeight: FontWeight.w700)),
+                      ])),
                 ]),
               ),
               const SizedBox(height: 16),
+
+              // ── Filter tabs ───────────────────────────────
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: Container(
@@ -214,28 +245,15 @@ class _ServicesPageState extends State<ServicesPage>
                         fontSize: 12, fontWeight: FontWeight.w700),
                     tabs: const [
                       Tab(text: 'All'),
-                      Tab(text: 'Open'),
-                      Tab(text: 'Closed'),
+                      Tab(text: 'Active'),
                     ],
                   ),
                 ),
               ),
               const SizedBox(height: 16),
-              Expanded(
-                child: _filtered.isEmpty
-                    ? Center(child: Text('No services found',
-                        style: TextStyle(
-                          color:      AppTheme.textPrimary(isDark),
-                          fontSize:   15,
-                          fontWeight: FontWeight.w700)))
-                    : ListView.separated(
-                        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
-                        itemCount:        _filtered.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 12),
-                        itemBuilder: (_, i) => _buildCard(_filtered[i]),
-                      ),
-              ),
+
+              // ── Body ──────────────────────────────────────
+              Expanded(child: _buildBody()),
             ],
           ),
         ),
@@ -243,73 +261,137 @@ class _ServicesPageState extends State<ServicesPage>
     );
   }
 
+  Widget _buildBody() {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator(
+          color: AppTheme.crimson));
+    }
+
+    if (_error != null) {
+      return Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.wifi_off_rounded,
+              color: AppTheme.textMuted(isDark), size: 40),
+          const SizedBox(height: 12),
+          Text(_error!, style: TextStyle(
+              color: AppTheme.textMuted(isDark), fontSize: 14)),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: _load,
+            child: Container(
+              padding: const EdgeInsets.symmetric(
+                  horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                color:        AppTheme.crimson,
+                borderRadius: BorderRadius.circular(10)),
+              child: const Text('Retry', style: TextStyle(
+                color: Colors.white, fontWeight: FontWeight.w700)))),
+        ],
+      ));
+    }
+
+    if (_services.isEmpty) {
+      return Center(child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.store_outlined,
+              color: AppTheme.textMuted(isDark).withOpacity(0.4),
+              size: 48),
+          const SizedBox(height: 14),
+          Text('No services yet', style: TextStyle(
+            color:      AppTheme.textPrimary(isDark),
+            fontSize:   16, fontWeight: FontWeight.w700)),
+          const SizedBox(height: 6),
+          Text('Join a queue to see services here',
+            style: TextStyle(
+                color: AppTheme.textMuted(isDark), fontSize: 13)),
+        ],
+      ));
+    }
+
+    final list = _filtered;
+
+    if (list.isEmpty) {
+      return Center(child: Text('No active services right now',
+          style: TextStyle(
+            color: AppTheme.textMuted(isDark), fontSize: 14)));
+    }
+
+    return RefreshIndicator(
+      onRefresh: _load,
+      color: AppTheme.crimson,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
+        itemCount:        list.length,
+        separatorBuilder: (_, __) => const SizedBox(height: 12),
+        itemBuilder: (_, i) => _buildCard(list[i]),
+      ),
+    );
+  }
+
   Widget _buildCard(ServiceEntry s) {
-    final cc = _cc(s.category);
-    final ci = _ci(s.category);
+    final hasActive = s.activeTickets > 0;
 
     return Container(
       decoration: BoxDecoration(
         color:        AppTheme.card(isDark),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: s.activeTicket != null
+          color: hasActive
               ? AppTheme.crimson.withOpacity(0.35)
               : AppTheme.border(isDark),
-          width: s.activeTicket != null ? 1.5 : 1)),
+          width: hasActive ? 1.5 : 1)),
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start,
           children: [
+
+            // Service name + active badge
             Row(children: [
-              Container(width: 48, height: 48,
+              Container(
+                width: 46, height: 46,
                 decoration: BoxDecoration(
-                  color:        cc.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(14)),
-                child: Icon(ci, color: cc, size: 22)),
+                  color:        AppTheme.crimson.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(13)),
+                child: const Icon(Icons.store_rounded,
+                    color: AppTheme.crimson, size: 22)),
               const SizedBox(width: 14),
               Expanded(child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(s.category.toUpperCase(), style: TextStyle(
-                    color: cc, fontSize: 9,
-                    fontWeight: FontWeight.w800, letterSpacing: 1.5)),
+                  Text('SERVICE', style: TextStyle(
+                    color:      AppTheme.crimson,
+                    fontSize:   9,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 1.5)),
                   const SizedBox(height: 2),
                   Text(s.name, style: TextStyle(
                     color:      AppTheme.textPrimary(isDark),
                     fontSize:   15,
-                    fontWeight: FontWeight.w800)),
+                    fontWeight: FontWeight.w800),
+                    overflow: TextOverflow.ellipsis),
                 ])),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 10, vertical: 5),
-                decoration: BoxDecoration(
-                  color: s.isOpenNow
-                      ? Colors.green.withOpacity(0.1)
-                      : AppTheme.border(isDark),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: s.isOpenNow
-                        ? Colors.green.withOpacity(0.3)
-                        : Colors.transparent)),
-                child: Text(s.isOpenNow ? 'OPEN' : 'CLOSED',
-                  style: TextStyle(
-                    color: s.isOpenNow
-                        ? Colors.green
-                        : AppTheme.textMuted(isDark),
-                    fontSize: 9, fontWeight: FontWeight.w800,
-                    letterSpacing: 1))),
+              if (hasActive)
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 10, vertical: 5),
+                  decoration: BoxDecoration(
+                    color:        Colors.green.withOpacity(0.1),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                        color: Colors.green.withOpacity(0.3))),
+                  child: const Text('ACTIVE',
+                    style: TextStyle(
+                      color:      Colors.green,
+                      fontSize:   9,
+                      fontWeight: FontWeight.w800,
+                      letterSpacing: 1))),
             ]),
-            const SizedBox(height: 12),
-            Row(children: [
-              Icon(Icons.location_on_outlined,
-                  color: AppTheme.textMuted(isDark), size: 13),
-              const SizedBox(width: 4),
-              Expanded(child: Text(s.location,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                    color: AppTheme.textMuted(isDark), fontSize: 12))),
-            ]),
+
             const SizedBox(height: 14),
+
+            // Stats row
             Container(
               padding: const EdgeInsets.all(14),
               decoration: BoxDecoration(
@@ -319,22 +401,19 @@ class _ServicesPageState extends State<ServicesPage>
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceAround,
                 children: [
-                  _cell(Icons.access_time_rounded,
-                      '~${s.avgWaitMinutes}m', 'Avg Wait',
-                      AppTheme.crimson),
+                  _cell(Icons.confirmation_num_outlined,
+                      '${s.totalTickets}',   'Tickets',  AppTheme.crimson),
                   _vDiv(),
-                  _cell(Icons.login_rounded,
-                      s.openTime, 'Opens', Colors.green),
+                  _cell(Icons.check_circle_outline_rounded,
+                      '${s.activeTickets}',  'Active',   Colors.green),
                   _vDiv(),
-                  _cell(Icons.logout_rounded,
-                      s.closeTime, 'Closes',
-                      AppTheme.textMuted(isDark)),
-                  _vDiv(),
-                  _cell(Icons.repeat_rounded,
-                      '${s.totalVisits}x', 'Visits',
+                  _cell(Icons.history_rounded,
+                      _timeAgo(s.lastVisited), 'Last visit',
                       AppTheme.textPrimary(isDark)),
                 ])),
-            if (s.activeTicket != null) ...[
+
+            // Active ticket chip
+            if (s.lastTicketNumber != null && hasActive) ...[
               const SizedBox(height: 12),
               Container(
                 padding: const EdgeInsets.symmetric(
@@ -350,33 +429,25 @@ class _ServicesPageState extends State<ServicesPage>
                   const SizedBox(width: 8),
                   Text('Active ticket: ', style: TextStyle(
                     color: AppTheme.textMuted(isDark), fontSize: 13)),
-                  Text(s.activeTicket!, style: const TextStyle(
+                  Text(s.lastTicketNumber!, style: const TextStyle(
                     color:      AppTheme.crimson,
                     fontSize:   13,
                     fontWeight: FontWeight.w800)),
                   const Spacer(),
-                  const Text('In queue →', style: TextStyle(
-                    color:      AppTheme.crimson,
-                    fontSize:   12,
-                    fontWeight: FontWeight.w600)),
+                  Text(
+                    (s.lastTicketStatus ?? 'active').toUpperCase(),
+                    style: TextStyle(
+                      color:      _statusColor(s.lastTicketStatus),
+                      fontSize:   10,
+                      fontWeight: FontWeight.w800)),
                 ])),
             ],
-            const SizedBox(height: 10),
-            Row(children: [
-              Icon(Icons.history_rounded,
-                  color: AppTheme.textMuted(isDark), size: 12),
-              const SizedBox(width: 4),
-              Text('Last visited: ${s.lastVisited}',
-                style: TextStyle(
-                    color: AppTheme.textMuted(isDark), fontSize: 11)),
-            ]),
           ]),
       ),
     );
   }
 
-  Widget _cell(IconData icon, String value,
-      String label, Color color) {
+  Widget _cell(IconData icon, String value, String label, Color color) {
     return Column(children: [
       Icon(icon, color: color, size: 14),
       const SizedBox(height: 4),

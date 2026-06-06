@@ -241,6 +241,40 @@ class _LinkInputSheetState extends State<LinkInputSheet> {
       setState(() => _error = 'Please enter a service link or code');
       return;
     }
+
+    // ── Client-side validation ─────────────────────────────────
+    // Only accept:
+    //  • A full URL that contains "/join/<uuid>"
+    //  • A bare UUID (36-char, 4 hyphens) that could be a token
+    // Anything else is rejected immediately — no network call needed.
+    final uuidRe = RegExp(
+      r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
+      caseSensitive: false,
+    );
+
+    bool isValid = false;
+
+    if (val.contains('/join/')) {
+      // Must be a URL with /join/ followed by a UUID
+      try {
+        final uri  = Uri.parse(val);
+        final segs = uri.pathSegments;
+        final idx  = segs.indexOf('join');
+        if (idx != -1 && idx + 1 < segs.length) {
+          isValid = uuidRe.hasMatch(segs[idx + 1]);
+        }
+      } catch (_) {}
+    } else if (uuidRe.hasMatch(val) && val.length == 36) {
+      // Bare UUID
+      isValid = true;
+    }
+
+    if (!isValid) {
+      setState(() => _error =
+        'Only official Tickety links (e.g. http://…/join/…) or queue codes are accepted.');
+      return;
+    }
+
     widget.onResult(val);
   }
 
