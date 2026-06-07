@@ -390,16 +390,21 @@ class _FramePainter extends CustomPainter {
     final half = size.width * 0.60 / 2;
     final l = cx - half, r = cx + half, t = cy - half, b = cy + half;
 
-    // Dim everything
+    // Dim everything, then punch a TRANSPARENT hole for the scan window.
+    // BlendMode.clear only produces transparency inside an explicit layer;
+    // without saveLayer the "cleared" area renders solid black (the bug that
+    // made the scan box dark).
+    canvas.saveLayer(Rect.fromLTWH(0, 0, size.width, size.height), Paint());
     canvas.drawRect(
         Rect.fromLTWH(0, 0, size.width, size.height), dim);
 
-    // Clear the scan window
+    // Clear the scan window (now shows the live camera through it)
     canvas.drawRRect(
       RRect.fromRectAndRadius(
           Rect.fromLTRB(l, t, r, b), const Radius.circular(8)),
       clear,
     );
+    canvas.restore();
 
     // Four corner L-shapes
     for (final pts in [

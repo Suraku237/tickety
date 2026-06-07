@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/session_service.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
 import 'home_page.dart';
@@ -93,8 +94,13 @@ class _MainShellState extends State<MainShell>
     super.initState();
     _currentIndex = widget.initialIndex;
     ThemeProvider().addListener(_onThemeChanged);
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      NotificationService().onLogin(widget.user.username);
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      // #7 — welcome message only on the first ever app open, not every login.
+      final prefs = await SharedPreferences.getInstance();
+      if (!(prefs.getBool('tickety_welcomed') ?? false)) {
+        NotificationService().onLogin(widget.user.username);
+        await prefs.setBool('tickety_welcomed', true);
+      }
       _loadTicketIds();
     });
   }

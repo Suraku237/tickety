@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "31529205735",
+    "project_id": "tickety-75976",
+    "storage_bucket": "tickety-75976.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:31529205735:android:995531fff181e49bd78742",
+        "android_client_info": {
+          "package_name": "com.example.tickety"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBrHwJbH8EH-NEFgGlqB5PCE0I-9n3rIf4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

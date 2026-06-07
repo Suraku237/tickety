@@ -44,9 +44,12 @@ class DashTicket {
   final int     estimatedMinutes;
   final String  currentlyServing;
   final int     guichetNumber;
+  final String  counterName;
   final int     totalInQueue;
   final bool    hasSwapRequest;
   final String? swapRequestFrom;
+  final String? swapId;     // pending incoming swap id (for accept/reject)
+  final bool    called;     // authoritative: agent called this ticket to the counter
 
   const DashTicket({
     required this.id,
@@ -59,12 +62,15 @@ class DashTicket {
     required this.estimatedMinutes,
     required this.currentlyServing,
     required this.guichetNumber,
+    this.counterName = '',
     required this.totalInQueue,
     this.hasSwapRequest  = false,
     this.swapRequestFrom,
+    this.swapId,
+    this.called          = false,
   });
 
-  DashTicket copyWith({bool? hasSwapRequest}) => DashTicket(
+  DashTicket copyWith({bool? hasSwapRequest, String? swapRequestFrom, String? swapId, bool? called}) => DashTicket(
     id:               id,
     ticketNumber:     ticketNumber,
     serviceName:      serviceName,
@@ -75,9 +81,12 @@ class DashTicket {
     estimatedMinutes: estimatedMinutes,
     currentlyServing: currentlyServing,
     guichetNumber:    guichetNumber,
+    counterName:      counterName,
     totalInQueue:     totalInQueue,
     hasSwapRequest:   hasSwapRequest ?? this.hasSwapRequest,
-    swapRequestFrom:  swapRequestFrom,
+    swapRequestFrom:  swapRequestFrom ?? this.swapRequestFrom,
+    swapId:           swapId ?? this.swapId,
+    called:           called ?? this.called,
   );
 }
 
@@ -222,7 +231,7 @@ class _DashboardPageState extends State<_DashboardPage> with WidgetsBindingObser
 
   // Tracks positions from the last load so we can detect when a ticket
   // reaches position 0 (called to counter) between refreshes.
-  final Map<String, int?> _lastPositions = {};
+  final Map<String, bool> _lastCalled   = {};
 
   // #1 — silent auto-refresh so the dashboard (and the "you've been
   // called" alarm) stay current without a manual pull-to-refresh.
@@ -301,36 +310,36 @@ class _DashboardPageState extends State<_DashboardPage> with WidgetsBindingObser
           estimatedMinutes: (t['estimated_minutes'] as num?)?.toInt() ?? 0,
           currentlyServing: t['currently_serving']?.toString() ?? '—',
           guichetNumber:    (t['guichet_number']    as num?)?.toInt() ?? 0,
+          counterName:      t['counter_name']?.toString() ?? '',
           totalInQueue:     (t['total_in_queue']    as num?)?.toInt() ?? 0,
+          called:           t['called'] as bool? ?? false,
         )).toList();
       });
 
       // ── Alarm check ────────────────────────────────────────────
       // Fire a 15-second alarm for any ticket that has just reached
       // position 0 (i.e. it's their turn at the counter).
+      // Fire the alarm only when the agent has actually CALLED the ticket
+      // to the counter (real status active + position 0), not merely when it
+      // reaches the front of the waiting line.
       for (final ticket in _tickets) {
-        final prev = _lastPositions[ticket.id];
-        final curr = ticket.position;
-        // Trigger when: position is now 0, AND it wasn't 0 before
-        // (or this is the very first load and position is already 0)
-        final justCalled = curr == 0 && (prev == null || prev != 0);
-        if (justCalled && ticket.status == 'active') {
+        final prevCalled = _lastCalled[ticket.id] ?? false;
+        if (ticket.called && !prevCalled) {
           NotificationService().onTicketCalled(
             ticketId:   ticket.id,
             ticketCode: ticket.ticketNumber,
-            counter:    ticket.guichetNumber > 0
-                ? 'Guichet ${ticket.guichetNumber}'
-                : ticket.currentlyServing.isNotEmpty &&
-                  ticket.currentlyServing != '—'
-                    ? ticket.currentlyServing
-                    : 'the counter',
+            counter:    ticket.counterName.isNotEmpty
+                ? 'Counter ${ticket.counterName}'
+                : 'the counter',
           );
         }
       }
-      // Save positions for the next comparison
-      _lastPositions
+      _lastCalled
         ..clear()
-        ..addAll({for (final t in _tickets) t.id: t.position});
+        ..addAll({for (final t in _tickets) t.id: t.called});
+
+      // Pull any incoming swap requests so they appear without a restart (#2)
+      _loadIncomingSwaps();
     } catch (_) {
       // On a background poll failure, keep showing the last good data.
       if (!silent && mounted) setState(() {
@@ -390,6 +399,30 @@ class _DashboardPageState extends State<_DashboardPage> with WidgetsBindingObser
     );
   }
 
+  // Fetch pending incoming swap requests for each of the user's tickets and
+  // surface them on the card (polled via _load, so no app restart needed).
+  Future<void> _loadIncomingSwaps() async {
+    for (final t in List<DashTicket>.from(_tickets)) {
+      try {
+        final res = await _api.getIncomingSwapRequests(targetTicketId: t.id);
+        if (!mounted) return;
+        final incoming = (res['incoming'] as List? ?? []);
+        final i = _tickets.indexWhere((x) => x.id == t.id);
+        if (i == -1) continue;
+        if (incoming.isNotEmpty) {
+          final first = incoming.first as Map<String, dynamic>;
+          setState(() {
+            _tickets[i] = _tickets[i].copyWith(
+              hasSwapRequest:  true,
+              swapRequestFrom: first['requester_code']?.toString() ?? 'someone',
+              swapId:          first['swap_id']?.toString(),
+            );
+          });
+        }
+      } catch (_) { /* ignore transient errors */ }
+    }
+  }
+
   void _onRequestSwap(DashTicket ticket) {
     showModalBottomSheet(
       context:            context,
@@ -407,50 +440,28 @@ class _DashboardPageState extends State<_DashboardPage> with WidgetsBindingObser
     );
   }
 
-  void _onAcceptSwap(DashTicket ticket) {
-    setState(() {
-      final i = _tickets.indexWhere((t) => t.id == ticket.id);
-      if (i != -1) {
-        _tickets[i] = DashTicket(
-          id:               ticket.id,
-          ticketNumber:     ticket.ticketNumber,
-          serviceName:      ticket.serviceName,
-          serviceCategory:  ticket.serviceCategory,
-          status:           ticket.status,
-          position:         ticket.position,
-          peopleAhead:      ticket.peopleAhead,
-          estimatedMinutes: ticket.estimatedMinutes,
-          currentlyServing: ticket.currentlyServing,
-          guichetNumber:    ticket.guichetNumber,
-          totalInQueue:     ticket.totalInQueue,
-          hasSwapRequest:   false,
-        );
-      }
-    });
-    _showSnack('Swap accepted!', Colors.green);
+  void _onAcceptSwap(DashTicket ticket) async {
+    if (ticket.swapId == null) return;
+    final res = await _api.respondToSwap(swapId: ticket.swapId!, action: 'accept');
+    if (!mounted) return;
+    if (res['success'] == true) {
+      _showSnack('Swap accepted! You now hold the other ticket.', Colors.green);
+      _load();
+    } else {
+      _showSnack(res['message']?.toString() ?? 'Could not accept swap', AppTheme.crimson);
+    }
   }
 
-  void _onRejectSwap(DashTicket ticket) {
-    setState(() {
-      final i = _tickets.indexWhere((t) => t.id == ticket.id);
-      if (i != -1) {
-        _tickets[i] = DashTicket(
-          id:               ticket.id,
-          ticketNumber:     ticket.ticketNumber,
-          serviceName:      ticket.serviceName,
-          serviceCategory:  ticket.serviceCategory,
-          status:           ticket.status,
-          position:         ticket.position,
-          peopleAhead:      ticket.peopleAhead,
-          estimatedMinutes: ticket.estimatedMinutes,
-          currentlyServing: ticket.currentlyServing,
-          guichetNumber:    ticket.guichetNumber,
-          totalInQueue:     ticket.totalInQueue,
-          hasSwapRequest:   false,
-        );
-      }
-    });
-    _showSnack('Swap rejected.', AppTheme.crimson);
+  void _onRejectSwap(DashTicket ticket) async {
+    if (ticket.swapId == null) return;
+    final res = await _api.respondToSwap(swapId: ticket.swapId!, action: 'reject');
+    if (!mounted) return;
+    if (res['success'] == true) {
+      _showSnack('Swap rejected.', AppTheme.crimson);
+      _load();
+    } else {
+      _showSnack(res['message']?.toString() ?? 'Could not reject swap', AppTheme.crimson);
+    }
   }
 
   void _showSnack(String msg, Color color) {
@@ -1102,11 +1113,18 @@ class _DashTicketCard extends StatelessWidget {
   Color  _sc() => ticket.status == 'suspended'
       ? const Color(0xFFFFA500)
       : ticket.status == 'cancelled'
-          ? AppTheme.crimson : Colors.green;
+          ? AppTheme.crimson
+          : ticket.status == 'carried_over'
+              ? const Color(0xFF3B82F6)
+              : Colors.green;
 
   String _sl() => ticket.status == 'suspended'
       ? 'SUSPENDED'
-      : ticket.status == 'cancelled' ? 'CANCELLED' : 'ACTIVE';
+      : ticket.status == 'cancelled'
+          ? 'CANCELLED'
+          : ticket.status == 'carried_over'
+              ? 'CARRIED OVER'
+              : 'ACTIVE';
 
   @override
   Widget build(BuildContext context) {
@@ -1179,15 +1197,19 @@ class _DashTicketCard extends StatelessWidget {
                 _row(dark, Icons.record_voice_over_rounded,
                     'Serving',  ticket.currentlyServing),
                 const SizedBox(height: 5),
-                // Guichet is only revealed when the ticket is called
-                if (ticket.status == 'active' && ticket.peopleAhead == 0)
+                // Counter is only revealed once the ticket is actually called
+                if (ticket.called && ticket.counterName.isNotEmpty)
                   _row(dark, Icons.door_front_door_outlined,
-                      'Guichet',  '${ticket.guichetNumber}',
+                      'Counter',  ticket.counterName,
                       highlight: true),
-                if (ticket.status == 'active' && ticket.peopleAhead == 0)
+                if (ticket.called && ticket.counterName.isNotEmpty)
                   const SizedBox(height: 5),
+                // #5 — carried-over tickets have no serve estimate until reopen
                 _row(dark, Icons.timer_outlined,
-                    'Est. wait', '~${ticket.estimatedMinutes} min',
+                    'Est. wait',
+                    ticket.status == 'carried_over'
+                        ? 'Carried over'
+                        : '~${ticket.estimatedMinutes} min',
                     highlight: true),
               ])),
             ]),

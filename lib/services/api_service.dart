@@ -19,7 +19,7 @@ class ApiService {
   ApiService._internal();
 
   // --- Configuration ---
-  static const String _baseUrl = 'http://192.168.1.100:5000/api';
+  static const String _baseUrl = 'http://109.199.120.38:5000/api';
 
   // Auth token set after a successful login — sent on protected calls
   String? _token;
@@ -219,6 +219,41 @@ class ApiService {
   }) =>
       _post('/profile/email/confirm-new',
           {'user_id': userId, 'code': code}, useAuth: true);
+
+  // ==========================================================
+  // AUTH — FORGOT PASSWORD (3-step reset)
+  // ==========================================================
+  Future<Map<String, dynamic>> forgotPassword({required String email}) =>
+      _post('/forgot-password', {'email': email});
+
+  Future<Map<String, dynamic>> verifyResetCode({
+    required String email,
+    required String code,
+  }) =>
+      _post('/verify-reset-code', {'email': email, 'code': code});
+
+  Future<Map<String, dynamic>> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) =>
+      _post('/reset-password', {
+        'email':        email,
+        'code':         code,
+        'new_password': newPassword,
+      });
+
+  // PROFILE — REGISTER DEVICE TOKEN (#8 push)
+  Future<Map<String, dynamic>> registerDeviceToken({
+    required String userId,
+    required String token,
+    String? platform,
+  }) =>
+      _post('/profile/device-token', {
+        'user_id': userId,
+        'token':   token,
+        if (platform != null) 'platform': platform,
+      }, useAuth: true);
 
   // PROFILE — UPDATE USERNAME
   Future<Map<String, dynamic>> updateUsername({

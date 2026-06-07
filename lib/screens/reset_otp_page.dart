@@ -1,0 +1,337 @@
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'dart:async';
+import '../services/api_service.dart';
+import '../utils/app_theme.dart';
+import '../utils/auth_widgets.dart';
+import '../utils/theme_provider.dart';
+import 'auth_page.dart';
+import 'new_password_page.dart';
+
+// =============================================================
+// RESET OTP PAGE  (Step 2 of 3)
+// Responsibilities:
+//   - Accept the 6-digit reset code sent to the user's email
+//   - Call /api/verify-reset-code
+//   - Navigate to NewPasswordPage on success
+// OOP Principle: Inheritance (extends AuthPage), Single Responsibility
+// =============================================================
+class ResetOtpPage extends AuthPage {
+  final String email;
+
+  const ResetOtpPage({super.key, required this.email});
+
+  @override
+  State<ResetOtpPage> createState() => _ResetOtpPageState();
+}
+
+class _ResetOtpPageState extends AuthPageState<ResetOtpPage> {
+
+  final List<TextEditingController> _digitControllers =
+      List.generate(6, (_) => TextEditingController());
+  final List<FocusNode> _focusNodes =
+      List.generate(6, (_) => FocusNode());
+
+  final _apiService = ApiService();
+
+  late AnimationController _pulseController;
+  late Animation<double>   _pulseAnimation;
+
+  bool    _isLoading      = false;
+  bool    _isResending    = false;
+  String? _errorMessage;
+  String? _successMessage;
+  int     _resendCooldown = 60;
+  Timer?  _cooldownTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _pulseController = AnimationController(
+        vsync: this, duration: const Duration(milliseconds: 1500))
+      ..repeat(reverse: true);
+    _pulseAnimation = Tween<double>(begin: 0.95, end: 1.05).animate(
+        CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut));
+    _startCooldown(60);
+  }
+
+  void _startCooldown(int seconds) {
+    setState(() => _resendCooldown = seconds);
+    _cooldownTimer?.cancel();
+    _cooldownTimer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (_resendCooldown <= 0) t.cancel();
+      else setState(() => _resendCooldown--);
+    });
+  }
+
+  @override
+  void dispose() {
+    _pulseController.dispose();
+    _cooldownTimer?.cancel();
+    for (final c in _digitControllers) c.dispose();
+    for (final f in _focusNodes)       f.dispose();
+    super.dispose();
+  }
+
+  String get _otpCode => _digitControllers.map((c) => c.text).join();
+
+  void _onDigitChanged(int index, String value) {
+    if (value.length == 1 && index < 5) {
+      _focusNodes[index + 1].requestFocus();
+    }
+    if (_otpCode.length == 6) {
+      FocusScope.of(context).unfocus();
+      _onVerify();
+    }
+  }
+
+  void _onKeyEvent(int index, KeyEvent event) {
+    if (event is KeyDownEvent &&
+        event.logicalKey == LogicalKeyboardKey.backspace) {
+      if (_digitControllers[index].text.isEmpty && index > 0) {
+        _digitControllers[index - 1].clear();
+        _focusNodes[index - 1].requestFocus();
+      }
+    }
+  }
+
+  void _clearDigits() {
+    for (final c in _digitControllers) c.clear();
+    _focusNodes[0].requestFocus();
+  }
+
+  Future<void> _onVerify() async {
+    if (_otpCode.length < 6) {
+      setState(() =>
+          _errorMessage = 'Please enter the complete 6-digit code');
+      return;
+    }
+    setState(() {
+      _isLoading      = true;
+      _errorMessage   = null;
+      _successMessage = null;
+    });
+
+    final data = await _apiService.verifyResetCode(
+        email: widget.email, code: _otpCode);
+
+    if (!mounted) return;
+    setState(() => _isLoading = false);
+
+    if (data['success'] == true) {
+      setState(() => _successMessage = 'Code verified!');
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (!mounted) return;
+      Navigator.pushReplacement(context, MaterialPageRoute(
+        builder: (_) => NewPasswordPage(
+          email: widget.email,
+          code:  _otpCode,
+        ),
+      ));
+    } else {
+      setState(() => _errorMessage =
+          data['message'] ?? 'Invalid code. Please try again.');
+      _clearDigits();
+    }
+  }
+
+  Future<void> _onResend() async {
+    if (_resendCooldown > 0 || _isResending) return;
+    setState(() {
+      _isResending    = true;
+      _errorMessage   = null;
+      _successMessage = null;
+    });
+
+    final data = await _apiService.forgotPassword(email: widget.email);
+
+    if (!mounted) return;
+    setState(() => _isResending = false);
+
+    if (data['success'] == true) {
+      setState(() => _successMessage = 'A new code has been sent.');
+      _startCooldown(60);
+      _clearDigits();
+    } else {
+      setState(() => _errorMessage =
+          data['message'] ?? 'Could not resend code. Try again.');
+    }
+  }
+
+  @override
+  Widget buildBody(BuildContext context) {
+    return Stack(children: [
+      AuthWidgets.buildGlowCircle(
+          size: 300, opacity: 0.15, alignment: Alignment.topCenter),
+      SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 28),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 24),
+
+              // Back + theme toggle
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  GestureDetector(
+                    onTap: () => Navigator.pop(context),
+                    child: Container(
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                        color:        AppTheme.card(isDark),
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(
+                            color: AppTheme.border(isDark))),
+                      child: Icon(Icons.arrow_back_rounded,
+                          color: AppTheme.textPrimary(isDark),
+                          size: 20))),
+                  AuthWidgets.buildThemeToggle(
+                    isDark:   isDark,
+                    onToggle: () => ThemeProvider().toggleTheme()),
+                ],
+              ),
+
+              const SizedBox(height: 40),
+
+              // Pulsing icon
+              Center(
+                child: ScaleTransition(
+                  scale: _pulseAnimation,
+                  child: Container(
+                    width: 80, height: 80,
+                    decoration: BoxDecoration(
+                      color:  AppTheme.crimson.withOpacity(0.12),
+                      shape:  BoxShape.circle,
+                      border: Border.all(
+                          color: AppTheme.crimson.withOpacity(0.35),
+                          width: 1.5)),
+                    child: const Icon(
+                        Icons.lock_outline_rounded,
+                        color: AppTheme.crimson, size: 36)))),
+
+              const SizedBox(height: 28),
+
+              Center(child: Text('Check Your Email', style: TextStyle(
+                color:      AppTheme.textPrimary(isDark),
+                fontSize:   28,
+                fontWeight: FontWeight.w900,
+                letterSpacing: -0.5))),
+              const SizedBox(height: 10),
+              Center(child: Text('We sent a 6-digit reset code to',
+                  style: TextStyle(
+                      color: AppTheme.textMuted(isDark),
+                      fontSize: 14))),
+              const SizedBox(height: 4),
+              Center(child: Text(widget.email,
+                style: const TextStyle(
+                  color:      AppTheme.crimson,
+                  fontSize:   14,
+                  fontWeight: FontWeight.w600))),
+
+              const SizedBox(height: 40),
+
+              if (_errorMessage != null) ...[
+                AuthWidgets.buildErrorBanner(_errorMessage!),
+                const SizedBox(height: 20),
+              ],
+              if (_successMessage != null) ...[
+                AuthWidgets.buildSuccessBanner(_successMessage!),
+                const SizedBox(height: 20),
+              ],
+
+              // OTP boxes
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: List.generate(6, _buildDigitBox),
+              ),
+
+              const SizedBox(height: 36),
+
+              AuthWidgets.buildPrimaryButton(
+                label:     'VERIFY CODE',
+                isLoading: _isLoading,
+                onPressed: _onVerify,
+              ),
+
+              const SizedBox(height: 28),
+
+              Center(
+                child: GestureDetector(
+                  onTap: _resendCooldown == 0 ? _onResend : null,
+                  child: _isResending
+                      ? const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: AppTheme.crimson))
+                      : RichText(
+                          text: TextSpan(
+                            text: "Didn't receive a code? ",
+                            style: TextStyle(
+                                color: AppTheme.textMuted(isDark),
+                                fontSize: 14),
+                            children: [TextSpan(
+                              text: _resendCooldown > 0
+                                  ? 'Resend in ${_resendCooldown}s'
+                                  : 'Resend',
+                              style: TextStyle(
+                                color: _resendCooldown > 0
+                                    ? AppTheme.textMuted(isDark)
+                                    : AppTheme.crimson,
+                                fontWeight: FontWeight.w700))])),
+                ),
+              ),
+
+              const SizedBox(height: 16),
+              Center(child: Text('Code expires in 10 minutes',
+                style: TextStyle(
+                    color: AppTheme.textMuted(isDark).withOpacity(0.5),
+                    fontSize: 12))),
+              const SizedBox(height: 40),
+            ],
+          ),
+        ),
+      ),
+    ]);
+  }
+
+  Widget _buildDigitBox(int index) {
+    return SizedBox(
+      width: 48, height: 58,
+      child: KeyboardListener(
+        focusNode:  FocusNode(),
+        onKeyEvent: (e) => _onKeyEvent(index, e),
+        child: TextFormField(
+          controller:      _digitControllers[index],
+          focusNode:       _focusNodes[index],
+          maxLength:       1,
+          textAlign:       TextAlign.center,
+          keyboardType:    TextInputType.number,
+          inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+          style: TextStyle(
+            color:      AppTheme.textPrimary(isDark),
+            fontSize:   22,
+            fontWeight: FontWeight.w800),
+          decoration: InputDecoration(
+            counterText:    '',
+            filled:         true,
+            fillColor:      AppTheme.card(isDark),
+            contentPadding: EdgeInsets.zero,
+            border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                borderSide: BorderSide(color: AppTheme.border(isDark))),
+            enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                borderSide: BorderSide(color: AppTheme.border(isDark))),
+            focusedBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(AppTheme.radiusMedium),
+                borderSide: const BorderSide(
+                    color: AppTheme.crimson, width: 2))),
+          onChanged: (v) => _onDigitChanged(index, v),
+        ),
+      ),
+    );
+  }
+}

@@ -5,10 +5,12 @@ import '../utils/app_theme.dart';
 import '../utils/auth_widgets.dart';
 import '../utils/theme_provider.dart';
 import 'auth_page.dart';
+import 'forgot_password_page.dart';
 import 'registration_page.dart';
 import 'verification_page.dart';
 import 'home_page.dart';
 import 'main_shell.dart';
+
 
 // =============================================================
 // LOGIN PAGE
@@ -85,12 +87,8 @@ class _LoginPageState extends AuthPageState<LoginPage> {
   }
 
   void _onForgotPassword() {
-    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-      content:         const Text('Password reset — coming soon'),
-      behavior:        SnackBarBehavior.floating,
-      backgroundColor: AppTheme.card(isDark),
-      shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10)),
+    Navigator.push(context, MaterialPageRoute(
+      builder: (_) => const ForgotPasswordPage(),
     ));
   }
 

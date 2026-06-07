@@ -6,6 +6,9 @@ import 'services/session_service.dart';
 import 'utils/theme_provider.dart';
 import 'utils/app_theme.dart';
 import 'services/notification_service.dart';
+import 'package:firebase_core/firebase_core.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+import 'services/push_notifications.dart';
 
 // =============================================================
 // ENTRY POINT
@@ -14,6 +17,17 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   await ThemeProvider().loadTheme();
   await NotificationService().init();
+
+  // #8 — Firebase Cloud Messaging (system push notifications).
+  // Wrapped in try/catch so a missing or misconfigured Firebase setup
+  // degrades gracefully (in-app alerts still work) instead of crashing.
+  try {
+    await Firebase.initializeApp();
+    FirebaseMessaging.onBackgroundMessage(firebaseBgHandler);
+  } catch (e) {
+    debugPrint('Firebase init skipped (push disabled): $e');
+  }
+
   runApp(const TicketyApp());
 }
 

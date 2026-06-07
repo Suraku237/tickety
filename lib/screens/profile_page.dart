@@ -19,7 +19,6 @@ class ProfilePage extends StatefulWidget {
 class _ProfilePageState extends State<ProfilePage> {
   final _usernameCtrl = TextEditingController();
   final _emailCtrl = TextEditingController();
-  bool _isEditing = false;
 
   bool get isDark => ThemeProvider().isDarkMode;
 
@@ -43,9 +42,6 @@ class _ProfilePageState extends State<ProfilePage> {
     super.dispose();
   }
 
-  void _toggleEdit() {
-    setState(() => _isEditing = !_isEditing);
-  }
 
   void _confirmLogout() {
     showDialog(
@@ -68,25 +64,6 @@ class _ProfilePageState extends State<ProfilePage> {
         backgroundColor: AppTheme.card(isDark),
         elevation: 0,
         title: Text('Profile', style: TextStyle(color: AppTheme.textPrimary(isDark))),
-        actions: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            child: TextButton(
-              onPressed: _toggleEdit,
-              style: TextButton.styleFrom(
-                backgroundColor: _isEditing ? AppTheme.crimson : Colors.transparent,
-                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-              ),
-              child: Text(
-                _isEditing ? 'Save' : 'Edit',
-                style: TextStyle(
-                  color: _isEditing ? Colors.white : AppTheme.textMuted(isDark),
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-            ),
-          ),
-        ],
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -138,7 +115,7 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 30),
               _sectionLabel('ACCOUNT INFO'),
               const SizedBox(height: 12),
-              _inputCard(label: 'Username', controller: _usernameCtrl, enabled: _isEditing),
+              _inputCard(label: 'Username', controller: _usernameCtrl, enabled: false),
               const SizedBox(height: 10),
               _inputCard(label: 'Email Address', controller: _emailCtrl, enabled: false),
               const SizedBox(height: 24),
