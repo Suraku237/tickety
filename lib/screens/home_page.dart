@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
@@ -205,7 +206,7 @@ class _DashboardPage extends StatefulWidget {
   State<_DashboardPage> createState() => _DashboardPageState();
 }
 
-class _DashboardPageState extends State<_DashboardPage> {
+class _DashboardPageState extends State<_DashboardPage> with WidgetsBindingObserver {
   final _api = ApiService();
 
   bool    _loading      = true;
@@ -223,6 +224,11 @@ class _DashboardPageState extends State<_DashboardPage> {
   // reaches position 0 (called to counter) between refreshes.
   final Map<String, int?> _lastPositions = {};
 
+  // #1 — silent auto-refresh so the dashboard (and the "you've been
+  // called" alarm) stay current without a manual pull-to-refresh.
+  static const Duration _pollEvery = Duration(seconds: 5);
+  Timer? _poll;
+
   bool get _dark => ThemeProvider().isDarkMode;
 
   // Helper: mirrors the card label logic — anything not suspended/cancelled/served counts as active
@@ -236,7 +242,28 @@ class _DashboardPageState extends State<_DashboardPage> {
     super.initState();
     _pageCtrl = PageController(viewportFraction: 0.92);
     ThemeProvider().addListener(_rebuild);
+    WidgetsBinding.instance.addObserver(this);
     _load();
+    _startPolling();
+  }
+
+  void _startPolling() {
+    _poll?.cancel();
+    _poll = Timer.periodic(_pollEvery, (_) {
+      if (mounted) _load(silent: true);
+    });
+  }
+
+  // Pause polling while the app is backgrounded; resume (and refresh
+  // immediately) when it returns to the foreground.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _load(silent: true);
+      _startPolling();
+    } else {
+      _poll?.cancel();
+    }
   }
 
   void _rebuild() { if (mounted) setState(() {}); }
@@ -244,12 +271,14 @@ class _DashboardPageState extends State<_DashboardPage> {
   @override
   void dispose() {
     ThemeProvider().removeListener(_rebuild);
+    WidgetsBinding.instance.removeObserver(this);
+    _poll?.cancel();
     _pageCtrl.dispose();
     super.dispose();
   }
 
-  Future<void> _load() async {
-    setState(() { _loading = true; _error = null; });
+  Future<void> _load({bool silent = false}) async {
+    if (!silent) setState(() { _loading = true; _error = null; });
     try {
       final data = await _api.getTickets(userId: widget.user.userId, email: widget.user.email);
       if (!mounted) return;
@@ -303,7 +332,8 @@ class _DashboardPageState extends State<_DashboardPage> {
         ..clear()
         ..addAll({for (final t in _tickets) t.id: t.position});
     } catch (_) {
-      if (mounted) setState(() {
+      // On a background poll failure, keep showing the last good data.
+      if (!silent && mounted) setState(() {
         _loading  = false;
         _error    = 'Could not load tickets.';
         _tickets  = [];

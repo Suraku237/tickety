@@ -19,7 +19,7 @@ class ApiService {
   ApiService._internal();
 
   // --- Configuration ---
-  static const String _baseUrl = 'http://109.199.120.38:5000/api';
+  static const String _baseUrl = 'http://192.168.1.100:5000/api';
 
   // Auth token set after a successful login — sent on protected calls
   String? _token;
@@ -175,6 +175,58 @@ class ApiService {
     required String userId,
   }) =>
       _post('/delete-account', {'user_id': userId}, useAuth: true);
+
+  // ----------------------------------------------------------
+  // SERVICES — BROWSE (public: visited + non-visited + wait time)
+  // GET /api/services/browse?q=<search>&user_email=<email>
+  // Returns each service with people_waiting, avg_wait_minutes,
+  // num_queues and a `visited` flag.
+  // ----------------------------------------------------------
+  Future<Map<String, dynamic>> browseServices({
+    String? query,
+    String? userEmail,
+  }) {
+    final params = <String, String>{};
+    if (query     != null && query.isNotEmpty)     params['q']          = query;
+    if (userEmail != null && userEmail.isNotEmpty) params['user_email'] = userEmail;
+    return _get('/services/browse', queryParams: params, useAuth: true);
+  }
+
+  // ==========================================================
+  // PROFILE — EMAIL CHANGE (3-step, mirrors the web flow)
+  // ==========================================================
+
+  // Step 1: send OTP to the OLD email to confirm ownership.
+  Future<Map<String, dynamic>> initiateEmailChange({
+    required String userId,
+    required String newEmail,
+  }) =>
+      _post('/profile/email/initiate',
+          {'user_id': userId, 'new_email': newEmail}, useAuth: true);
+
+  // Step 2: verify the OLD-email OTP (backend then sends OTP to NEW email).
+  Future<Map<String, dynamic>> confirmOldEmail({
+    required String userId,
+    required String code,
+  }) =>
+      _post('/profile/email/confirm-old',
+          {'user_id': userId, 'code': code}, useAuth: true);
+
+  // Step 3: verify the NEW-email OTP and apply the change.
+  Future<Map<String, dynamic>> confirmNewEmail({
+    required String userId,
+    required String code,
+  }) =>
+      _post('/profile/email/confirm-new',
+          {'user_id': userId, 'code': code}, useAuth: true);
+
+  // PROFILE — UPDATE USERNAME
+  Future<Map<String, dynamic>> updateUsername({
+    required String userId,
+    required String username,
+  }) =>
+      _patch('/profile/username',
+          {'user_id': userId, 'username': username}, useAuth: true);
 
   // ----------------------------------------------------------
   // SCHEDULE — GET CURRENT STATUS FOR A SERVICE

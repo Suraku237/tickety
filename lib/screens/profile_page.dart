@@ -140,7 +140,7 @@ class _ProfilePageState extends State<ProfilePage> {
               const SizedBox(height: 12),
               _inputCard(label: 'Username', controller: _usernameCtrl, enabled: _isEditing),
               const SizedBox(height: 10),
-              _inputCard(label: 'Email Address', controller: _emailCtrl, enabled: _isEditing),
+              _inputCard(label: 'Email Address', controller: _emailCtrl, enabled: false),
               const SizedBox(height: 24),
               _sectionLabel('APPEARANCE'),
               const SizedBox(height: 12),
@@ -160,6 +160,17 @@ class _ProfilePageState extends State<ProfilePage> {
                   isScrollControlled: true,
                   backgroundColor: Colors.transparent,
                   builder: (_) => _ChangePasswordSheet(isDark: isDark),
+                ),
+              ),
+              const SizedBox(height: 10),
+              _menuTile(
+                icon: Icons.alternate_email_rounded,
+                label: 'Change Email',
+                onTap: () => showModalBottomSheet(
+                  context: context,
+                  isScrollControlled: true,
+                  backgroundColor: Colors.transparent,
+                  builder: (_) => _ChangeEmailSheet(isDark: isDark),
                 ),
               ),
               const SizedBox(height: 24),
@@ -531,6 +542,159 @@ class _DeleteAccountDialogState extends State<_DeleteAccountDialog> {
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+
+// =============================================================
+// CHANGE EMAIL SHEET  (#10 — 3-step verified flow, mirrors web)
+//   Step 0: enter new email -> OTP sent to CURRENT email
+//   Step 1: verify CURRENT-email OTP -> OTP sent to NEW email
+//   Step 2: verify NEW-email OTP -> change applied
+// =============================================================
+class _ChangeEmailSheet extends StatefulWidget {
+  final bool isDark;
+  const _ChangeEmailSheet({required this.isDark});
+
+  @override
+  State<_ChangeEmailSheet> createState() => _ChangeEmailSheetState();
+}
+
+class _ChangeEmailSheetState extends State<_ChangeEmailSheet> {
+  final _newEmailCtrl = TextEditingController();
+  final _oldCodeCtrl  = TextEditingController();
+  final _newCodeCtrl  = TextEditingController();
+  int  _step = 0;
+  bool _loading = false;
+  String? _userId;
+
+  Future<String> _uid() async {
+    _userId ??= (await SessionService().restore())?['user_id']?.toString() ?? '';
+    return _userId!;
+  }
+
+  void _toast(String msg, {bool ok = false}) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+      content: Text(msg),
+      backgroundColor: ok ? Colors.green : AppTheme.crimson));
+  }
+
+  Future<void> _next() async {
+    if (_step == 0) {
+      final email = _newEmailCtrl.text.trim();
+      if (!email.contains('@') || !email.contains('.')) { _toast('Enter a valid email'); return; }
+      setState(() => _loading = true);
+      final res = await ApiService().initiateEmailChange(userId: await _uid(), newEmail: email);
+      if (!mounted) return; setState(() => _loading = false);
+      if (res['success'] == true) { setState(() => _step = 1); _toast('Code sent to your current email', ok: true); }
+      else { _toast(res['message']?.toString() ?? 'Could not start email change'); }
+    } else if (_step == 1) {
+      final code = _oldCodeCtrl.text.trim();
+      if (code.isEmpty) { _toast('Enter the code'); return; }
+      setState(() => _loading = true);
+      final res = await ApiService().confirmOldEmail(userId: await _uid(), code: code);
+      if (!mounted) return; setState(() => _loading = false);
+      if (res['success'] == true) { setState(() => _step = 2); _toast('Code sent to the new email', ok: true); }
+      else { _toast(res['message']?.toString() ?? 'Incorrect code'); }
+    } else {
+      final code = _newCodeCtrl.text.trim();
+      if (code.isEmpty) { _toast('Enter the code'); return; }
+      setState(() => _loading = true);
+      final res = await ApiService().confirmNewEmail(userId: await _uid(), code: code);
+      if (!mounted) return; setState(() => _loading = false);
+      if (res['success'] == true) {
+        Navigator.pop(context);
+        _toast('Email updated. Please log in again to refresh your session.', ok: true);
+      } else { _toast(res['message']?.toString() ?? 'Incorrect code'); }
+    }
+  }
+
+  @override
+  void dispose() {
+    _newEmailCtrl.dispose();
+    _oldCodeCtrl.dispose();
+    _newCodeCtrl.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = widget.isDark;
+    const titles = ['Change Email', 'Verify Current Email', 'Verify New Email'];
+    const hints  = [
+      "Enter your new email. We'll send a code to your CURRENT email to confirm it's you.",
+      'Enter the 6-digit code sent to your CURRENT email.',
+      'Enter the 6-digit code sent to your NEW email to finish.',
+    ];
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      child: Container(
+        decoration: BoxDecoration(
+          color: AppTheme.card(isDark),
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        child: SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(20),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(width: 40, height: 4, decoration: BoxDecoration(color: AppTheme.border(isDark), borderRadius: BorderRadius.circular(2))),
+                const SizedBox(height: 18),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(3, (i) => AnimatedContainer(
+                    duration: const Duration(milliseconds: 200),
+                    margin: const EdgeInsets.symmetric(horizontal: 4),
+                    width: i == _step ? 22 : 8,
+                    height: 8,
+                    decoration: BoxDecoration(
+                      color: i <= _step ? AppTheme.crimson : AppTheme.border(isDark),
+                      borderRadius: BorderRadius.circular(4)),
+                  )),
+                ),
+                const SizedBox(height: 16),
+                Text(titles[_step], style: TextStyle(color: AppTheme.textPrimary(isDark), fontSize: 18, fontWeight: FontWeight.w900)),
+                const SizedBox(height: 8),
+                Text(hints[_step], textAlign: TextAlign.center, style: TextStyle(color: AppTheme.textMuted(isDark), fontSize: 12.5, height: 1.4)),
+                const SizedBox(height: 18),
+                if (_step == 0) _field(_newEmailCtrl, 'New email address', isDark, email: true),
+                if (_step == 1) _field(_oldCodeCtrl, '6-digit code', isDark, code: true),
+                if (_step == 2) _field(_newCodeCtrl, '6-digit code', isDark, code: true),
+                const SizedBox(height: 20),
+                SizedBox(
+                  width: double.infinity,
+                  child: ElevatedButton(
+                    onPressed: _loading ? null : _next,
+                    style: ElevatedButton.styleFrom(backgroundColor: AppTheme.crimson, padding: const EdgeInsets.symmetric(vertical: 14)),
+                    child: _loading
+                        ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                        : Text(_step == 2 ? 'Confirm Change' : 'Continue'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _field(TextEditingController c, String label, bool isDark, {bool email = false, bool code = false}) {
+    return TextField(
+      controller: c,
+      keyboardType: email
+          ? TextInputType.emailAddress
+          : (code ? TextInputType.number : TextInputType.text),
+      style: TextStyle(color: AppTheme.textPrimary(isDark)),
+      decoration: InputDecoration(
+        labelText: label,
+        filled: true,
+        fillColor: AppTheme.surface(isDark),
+        border: OutlineInputBorder(borderRadius: BorderRadius.circular(14), borderSide: BorderSide(color: AppTheme.border(isDark))),
       ),
     );
   }
