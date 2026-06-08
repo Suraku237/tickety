@@ -14,6 +14,7 @@
 //   - pubspec deps: firebase_core, firebase_messaging,
 //     flutter_local_notifications
 // =============================================================
+import 'package:flutter/foundation.dart';
 import 'dart:io';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
@@ -43,10 +44,12 @@ class PushNotifications {
   /// Call once after Firebase.initializeApp() and after the user has logged
   /// in (so we know which user owns this device).
   static Future<void> init({required String userId}) async {
+    debugPrint('[push] init starting for user $userId');
     final messaging = FirebaseMessaging.instance;
 
     // 1) Permission (iOS + Android 13+).
-    await messaging.requestPermission(alert: true, badge: true, sound: true);
+    final settings = await messaging.requestPermission(alert: true, badge: true, sound: true);
+    debugPrint('[push] permission status: ${settings.authorizationStatus}');
 
     // 2) Local-notification plugin (renders FCM messages while foregrounded).
     const androidInit = AndroidInitializationSettings('@mipmap/ic_launcher');
@@ -61,9 +64,13 @@ class PushNotifications {
 
     // 3) Register this device's FCM token with the backend.
     final token = await messaging.getToken();
+    debugPrint('[push] FCM token: ${token == null ? "NULL" : "${token.substring(0, 12)}… (len ${token.length})"}');
     if (token != null) {
-      await ApiService().registerDeviceToken(
+      final res = await ApiService().registerDeviceToken(
         userId: userId, token: token, platform: _platform);
+      debugPrint('[push] registerDeviceToken -> $res');
+    } else {
+      debugPrint('[push] No token returned — Firebase/Play Services not ready on this device.');
     }
     messaging.onTokenRefresh.listen((t) {
       ApiService().registerDeviceToken(

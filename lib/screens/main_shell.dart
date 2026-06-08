@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../services/api_service.dart';
 import '../services/session_service.dart';
+import '../services/push_notifications.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../utils/app_theme.dart';
 import '../utils/theme_provider.dart';
@@ -102,6 +103,13 @@ class _MainShellState extends State<MainShell>
         await prefs.setBool('tickety_welcomed', true);
       }
       _loadTicketIds();
+
+      // #8 — register this device for system push notifications.
+      try {
+        await PushNotifications.init(userId: widget.user.userId);
+      } catch (e) {
+        debugPrint('[push] init FAILED: $e');
+      }
     });
   }
 
