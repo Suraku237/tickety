@@ -6,8 +6,36 @@ on:
       - main
 
 jobs:
+  # ── 1. Tests run first; deploy is blocked unless this passes ──────────────
+  test:
+    name: Run Unit Tests
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x' # Or your specific version
+          channel: 'stable'
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      - name: Static analysis
+        run: flutter analyze
+
+      - name: Run unit & widget tests
+        # To TEMPORARILY let deploys through while you adapt the tests,
+        # uncomment the next line (NOT recommended long-term):
+        # continue-on-error: true
+        run: flutter test --coverage
+
+  # ── 2. Build + deploy only after tests pass ───────────────────────────────
   build_and_deploy:
     name: Build APK and Upload
+    needs: test            # <-- gate: requires the `test` job to succeed
     runs-on: ubuntu-latest
 
     steps:
@@ -20,8 +48,6 @@ jobs:
         with:
           flutter-version: '3.x' # Or your specific version
           channel: 'stable'
-
-          
 
       # 2. Get dependencies and build APK
       - name: Build APK
@@ -40,7 +66,7 @@ jobs:
           # Path to the generated APK
           source: "build/app/outputs/flutter-apk/app-release.apk"
           # Where to put it on your website so it's downloadable
-          target: "/var/www/tickety_website/downloads/"
+          target: "/var/www/tickety_website/dist/downloads/"
           strip_components: 4
 
       # 4. Optional: Run a script to rename the file or fix permissions
@@ -53,10 +79,10 @@ jobs:
           port: ${{ secrets.VPS_PORT }}
           script: |
             # Ensure the directory exists
-            mkdir -p /var/www/tickety_website/downloads
-            
+            mkdir -p /var/www/tickety_website/dist/downloads
+
             # Set permissions so users can download it
-            chown -R www-data:www-data /var/www/tickety_website/downloads
-            chmod 644 /var/www/tickety_website/downloads/app-release.apk
-            
+            chown -R www-data:www-data /var/www/tickety_website/dist/downloads
+            chmod 644 /var/www/tickety_website/dist/downloads/app-release.apk
+
             echo "✅ APK is now available at yoursites-ip:5500/downloads/app-release.apk"
