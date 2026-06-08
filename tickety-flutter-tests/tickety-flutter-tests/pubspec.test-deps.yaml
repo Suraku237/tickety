@@ -1,5 +1,0 @@
-# Dev dependencies to merge into your Flutter app's pubspec.yaml.
-dev_dependencies:
-  flutter_test:
-    sdk: flutter
-  mocktail: ^1.0.0
